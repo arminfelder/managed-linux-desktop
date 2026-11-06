@@ -1,0 +1,12 @@
+[libdefaults]
+    default_realm = @@REALM@@
+    dns_lookup_kdc = true
+    dns_lookup_realm = false
+    rdns = false
+    # cifs.upcall looks for the ticket in a FILE cache with this name. KCM and KEYRING are not found.
+    default_ccache_name = FILE:/tmp/krb5cc_%{uid}
+    # AES256 only. A ticket with RC4 or AES128 fails instead of a silent downgrade.
+    # The computer account has msDS-SupportedEncryptionTypes = AES256 (odj-provision.ps1).
+    permitted_enctypes = aes256-cts-hmac-sha1-96
+    default_tkt_enctypes = aes256-cts-hmac-sha1-96
+    default_tgs_enctypes = aes256-cts-hmac-sha1-96

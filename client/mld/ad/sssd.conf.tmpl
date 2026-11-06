@@ -1,0 +1,25 @@
+[sssd]
+domains = @@DOMAIN@@
+services = nss, pam
+
+[domain/@@DOMAIN@@]
+id_provider = ad
+access_provider = ad
+ad_domain = @@DOMAIN@@
+krb5_realm = @@REALM@@
+realmd_tags = manages-system joined-with-adcli
+cache_credentials = True
+krb5_store_password_if_offline = True
+default_shell = /bin/bash
+ldap_id_mapping = True
+use_fully_qualified_names = False
+fallback_homedir = /home/%u
+# Only members of this AD group can log in. GPO logon rights apply in addition.
+ad_access_filter = (memberOf=CN=@@LINUX_GROUP@@,@@LINUX_GROUPS_OU@@)
+ad_gpo_access_control = enforcing
+# pam_mount uses cifs sec=krb5. cifs.upcall finds only a FILE ticket cache.
+krb5_ccname_template = FILE:/tmp/krb5cc_%U
+krb5_renewable_lifetime = 7d
+krb5_renew_interval = 1h
+dyndns_update = True
+dyndns_update_ptr = True

@@ -1,0 +1,8 @@
+[Unit]
+Description=MLD Group Policy (AD CA certificates, samba-gpupdate)
+Wants=network-online.target
+After=network-online.target sssd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mld-gpupdate

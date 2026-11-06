@@ -1,0 +1,11 @@
+# Microsoft 365 apps as Chrome app windows (firstboot phase_desktop): menu entry, dock pin, desktop icon.
+# The icons come from the Microsoft brand icon CDN at first boot; the sum pins each file.
+# Icon base: https://res-1.cdn.office.net/files/fabric-cdn-prod_20240129.001/assets/brand-icons/product/svg/<icon>_48x1.svg
+# id          name           url                                    icon        sha256
+m365          Microsoft 365  https://m365.cloud.microsoft/          m365        e602157ff7063845d2e6befafc8319121dda9fd22b65844f3bed8024c72fd57c
+outlook       Outlook        https://outlook.office.com/mail/       outlook     0884e0478f7e073163febe67eaff20be97ae38373b0866c9668f81c2f6bd26c2
+teams         Teams          https://teams.microsoft.com/v2/        teams       6ec0e1afd7359a71915430bab4a49554bcfd1f1b881db5108c807ed08f1a0afb
+word          Word           https://word.cloud.microsoft/          word        fef9d7fc114f0c5d55e6d50c6d8d3fc40ed69f1122d9adf1780dfa57ad40af79
+excel         Excel          https://excel.cloud.microsoft/         excel       da91a550409ab355e664188a00135bc93603e5a8f53df3eeed8abc2ab3db8d71
+powerpoint    PowerPoint     https://powerpoint.cloud.microsoft/    powerpoint  708fa79febaf25786d84a4bd6a39c8a7345e1e927399f88761db11dab5441f84
+onedrive      OneDrive       https://onedrive.cloud.microsoft/      onedrive    393fe3509c33de52e4dcfb7aece1a5ea41d8114ac1be0d68b13948cc28962f6a

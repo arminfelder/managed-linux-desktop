@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Default logo of the boot and login screens. Replace it with BRAND_LOGO in lab.env (PNG or SVG, light on dark). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="140" viewBox="0 0 480 140">
+  <rect x="8" y="22" width="96" height="96" rx="18" fill="none" stroke="#ffffff" stroke-width="8"/>
+  <path d="M30 96 V48 L56 76 L82 48 V96" fill="none" stroke="#ffffff" stroke-width="9" stroke-linejoin="round" stroke-linecap="round"/>
+  <text x="128" y="78" font-family="DejaVu Sans" font-weight="bold" font-size="52" fill="#ffffff">MLD</text>
+  <text x="130" y="112" font-family="DejaVu Sans" font-size="22" fill="#c8d4e3">Managed Linux Desktop</text>
+</svg>

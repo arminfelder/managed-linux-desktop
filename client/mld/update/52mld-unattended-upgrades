@@ -1,0 +1,23 @@
+// Automatic updates (mld-firstboot phase_updates). The Ubuntu file 50unattended-upgrades adds the release and security.
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Download-Upgradeable-Packages "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";
+
+// The site of each third-party source: the Mozilla Origin field is an internal registry path.
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}-updates";
+};
+Unattended-Upgrade::Origins-Pattern {
+    "site=packages.mozilla.org";
+    "site=dl.google.com";
+    "site=ancwrd1.github.io";
+};
+// Old kernels go with their UKI and boot entry (/etc/kernel/postrm.d/zz-mld-uki).
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+// mld-reboot.timer does the reboot: it checks the logind sessions. This setting checks utmp only.
+Unattended-Upgrade::Automatic-Reboot "false";
+
+// mld-firstboot and unattended-upgrades can use apt at the same time.
+DPkg::Lock::Timeout "600";

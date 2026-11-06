@@ -1,0 +1,14 @@
+Managed Linux desktop lab
+Copyright 2026 Armin Felder
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party content in this repository, not covered by the license above:
+- client/mld/apps/mozilla.sources: APT source with the public signing key of Mozilla (packages.mozilla.org).
+- client/mld/apps/google-chrome.sources: APT source with the public signing key of Google (dl.google.com).
+- client/mld/vpn/snx-rs.sources: APT source with the public signing key of the snx-rs project
+  (https://github.com/ancwrd1/snx-rs).
+These keys are copied without change from their publishers, for the verification of the packages.
+
+The build downloads more third-party software (Windows Server, virtio-win, Ubuntu, the Samba, Mozilla and Google
+ADMX templates, packages). It is not part of this repository and keeps its own license.

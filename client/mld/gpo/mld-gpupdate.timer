@@ -1,0 +1,10 @@
+[Unit]
+Description=MLD Group Policy refresh, as on Windows: 90 min with a random delay up to 30 min
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=90min
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target

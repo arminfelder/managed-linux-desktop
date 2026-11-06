@@ -1,0 +1,12 @@
+[Unit]
+Description=MLD desktop folder and Microsoft 365 launchers
+# Desktop Icons NG reads the desktop folder when the graphical session starts.
+Before=graphical-session-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/libexec/mld-desktop
+
+[Install]
+WantedBy=default.target

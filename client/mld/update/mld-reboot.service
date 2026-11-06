@@ -1,0 +1,6 @@
+[Unit]
+Description=MLD reboot after updates (only with no user session)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mld-reboot

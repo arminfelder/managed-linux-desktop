@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Unattended install for Windows Server 2025 Evaluation on SeaBIOS (MBR).
+     WinPE loads the virtio storage and net drivers from the virtio-win CD.
+     On the first logon, the provisioning driver run.ps1 starts from the PROVISION CD. -->
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+  <settings pass="windowsPE">
+    <component name="Microsoft-Windows-International-Core-WinPE" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSXS">
+      <SetupUILanguage><UILanguage>en-US</UILanguage></SetupUILanguage>
+      <InputLocale>en-US</InputLocale>
+      <SystemLocale>en-US</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>en-US</UserLocale>
+    </component>
+    <!-- The drive letter of the virtio-win CD in WinPE is not fixed. Setup ignores paths that do not exist. -->
+    <component name="Microsoft-Windows-PnpCustomizationsWinPE" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSXS">
+      <DriverPaths>
+        <PathAndCredentials wcm:keyValue="1" wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"><Path>D:\viostor\2k25\amd64</Path></PathAndCredentials>
+        <PathAndCredentials wcm:keyValue="2" wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"><Path>E:\viostor\2k25\amd64</Path></PathAndCredentials>
+        <PathAndCredentials wcm:keyValue="3" wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"><Path>F:\viostor\2k25\amd64</Path></PathAndCredentials>
+        <PathAndCredentials wcm:keyValue="4" wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"><Path>G:\viostor\2k25\amd64</Path></PathAndCredentials>
+        <PathAndCredentials wcm:keyValue="5" wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"><Path>D:\NetKVM\2k25\amd64</Path></PathAndCredentials>
+        <PathAndCredentials wcm:keyValue="6" wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"><Path>E:\NetKVM\2k25\amd64</Path></PathAndCredentials>
+        <PathAndCredentials wcm:keyValue="7" wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"><Path>F:\NetKVM\2k25\amd64</Path></PathAndCredentials>
+        <PathAndCredentials wcm:keyValue="8" wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"><Path>G:\NetKVM\2k25\amd64</Path></PathAndCredentials>
+      </DriverPaths>
+    </component>
+    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSXS">
+      <DiskConfiguration>
+        <Disk wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+          <DiskID>0</DiskID>
+          <WillWipeDisk>true</WillWipeDisk>
+          <CreatePartitions>
+            <CreatePartition wcm:action="add"><Order>1</Order><Type>Primary</Type><Extend>true</Extend></CreatePartition>
+          </CreatePartitions>
+          <ModifyPartitions>
+            <ModifyPartition wcm:action="add">
+              <Order>1</Order><PartitionID>1</PartitionID><Active>true</Active>
+              <Format>NTFS</Format><Label>System</Label><Letter>C</Letter>
+            </ModifyPartition>
+          </ModifyPartitions>
+        </Disk>
+      </DiskConfiguration>
+      <ImageInstall>
+        <OSImage>
+          <InstallFrom>
+            <MetaData wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+              <Key>/IMAGE/INDEX</Key>
+              <Value>@@IMAGE_INDEX@@</Value>
+            </MetaData>
+          </InstallFrom>
+          <InstallTo><DiskID>0</DiskID><PartitionID>1</PartitionID></InstallTo>
+        </OSImage>
+      </ImageInstall>
+      <UserData>
+        <!-- The evaluation media needs no product key. -->
+        <ProductKey><WillShowUI>Never</WillShowUI></ProductKey>
+        <AcceptEula>true</AcceptEula>
+      </UserData>
+    </component>
+  </settings>
+
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSXS">
+      <ComputerName>@@VM_HOSTNAME@@</ComputerName>
+      <RegisteredOwner>@@OWNER@@</RegisteredOwner>
+    </component>
+  </settings>
+
+  <settings pass="oobeSystem">
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSXS">
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <HideLocalAccountScreen>true</HideLocalAccountScreen>
+        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+        <NetworkLocation>Work</NetworkLocation>
+        <ProtectYourPC>3</ProtectYourPC>
+      </OOBE>
+      <UserAccounts>
+        <AdministratorPassword><Value>@@ADMIN_PW@@</Value><PlainText>true</PlainText></AdministratorPassword>
+      </UserAccounts>
+      <AutoLogon>
+        <Enabled>true</Enabled>
+        <Username>Administrator</Username>
+        <Password><Value>@@ADMIN_PW@@</Value><PlainText>true</PlainText></Password>
+        <LogonCount>50</LogonCount>
+      </AutoLogon>
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+          <Order>1</Order>
+          <Description>start provisioning driver</Description>
+          <CommandLine>powershell -ExecutionPolicy Bypass -NoProfile -Command "$d=(Get-Volume | ? { Test-Path ($_.DriveLetter + ':\provision\run.ps1') } | Select -First 1).DriveLetter; &amp; ($d + ':\provision\run.ps1')"</CommandLine>
+        </SynchronousCommand>
+      </FirstLogonCommands>
+      <TimeZone>@@TZ@@</TimeZone>
+    </component>
+  </settings>
+</unattend>

@@ -1,0 +1,6 @@
+# Samba configuration for samba-gpupdate only (mld-gpupdate). /etc/samba/smb.conf stays as the package installs it.
+# The machine password comes from secrets.tdb (net ads join, realm join --membership-software=samba).
+[global]
+    workgroup = @@NETBIOS@@
+    realm = @@REALM@@
+    security = ads

@@ -1,0 +1,15 @@
+[Unit]
+Description=Lab first-boot provisioning (TPM2 enrollment, AD join, sssd, pam_mount)
+Wants=network-online.target
+# cloud-init-network.service runs users_groups, which deletes the admin password (see phase_admin_pw).
+After=network-online.target cloud-init-network.service
+ConditionPathExists=!/var/lib/mld/DONE
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mld-firstboot
+RemainAfterExit=yes
+TimeoutStartSec=30min
+
+[Install]
+WantedBy=multi-user.target

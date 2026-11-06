@@ -1,0 +1,9 @@
+[Unit]
+Description=Certificate autoenrollment from AD (TPM keys, certmonger)
+After=network-online.target sssd.service certmonger.service
+Wants=network-online.target
+ConditionPathExists=/etc/mld/pki/token.pin
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mld-autoenroll machine

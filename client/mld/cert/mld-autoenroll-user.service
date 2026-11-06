@@ -1,0 +1,12 @@
+[Unit]
+Description=Certificate autoenrollment from AD for the user (TPM keys, certmonger)
+Requires=mld-certmonger-user.service
+After=mld-certmonger-user.service
+ConditionPathExists=/etc/mld-cert.conf
+
+[Service]
+Type=oneshot
+ExecCondition=/bin/sh -c 'test "$(id -u)" -ge 100000'
+# The user's Kerberos ticket is FILE:/tmp/krb5cc_<uid> (krb5.conf default_ccache_name), also in the user manager.
+ExecStart=/usr/local/sbin/mld-autoenroll setup user
+ExecStart=/usr/local/sbin/mld-autoenroll user

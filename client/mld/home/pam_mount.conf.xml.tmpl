@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE pam_mount SYSTEM "pam_mount.conf.xml.dtd">
+<pam_mount>
+  <debug enable="0" />
+  <!-- Only AD users: sssd ID mapping gives UIDs from 200000 (ldap_idmap_range_min).
+       systemd dynamic users (for example gdm-greeter, 60578) are below that and keep their local home. -->
+  <!-- mfsymlinks: symlinks on the Windows share (as small files). ~/.tpm2_pkcs11 and ~/.config/certmonger point
+       to /var/lib/mld-users/<uid> on each device, because the TPM keys work only on the device that made them. -->
+  <volume uid="200000-4294967294" fstype="cifs" server="@@DC_FQDN@@" path="Homes$/%(USER)"
+          mountpoint="/home/%(USER)"
+          options="sec=krb5,cruid=%(USERUID),uid=%(USERUID),gid=%(USERGID),file_mode=0600,dir_mode=0700,vers=3.1.1,nobrl,mfsymlinks@@SMB_SEAL@@" />
+  <mkmountpoint enable="1" remove="true" />
+  <logout wait="0" hup="no" term="no" kill="no" />
+</pam_mount>

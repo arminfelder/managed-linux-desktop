@@ -1,0 +1,12 @@
+<network>
+  <name>@@NET@@</name>
+  <forward mode='nat'/>
+  <domain name='mld-lab.internal' localOnly='yes'/>
+  <dns enable='yes'/>
+  <ip address='@@NET_GW@@' prefix='@@NET_PREFIX@@'>
+    <dhcp>
+      <range start='@@DHCP_START@@' end='@@DHCP_END@@'/>
+      <host mac='@@CLIENT_MAC@@' name='@@CLIENT_HOSTNAME@@' ip='@@CLIENT_IP@@'/>
+    </dhcp>
+  </ip>
+</network>

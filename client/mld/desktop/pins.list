@@ -1,0 +1,11 @@
+# Pinned apps for all users (GNOME dock: dconf default favorite-apps; KDE task manager: Plasma update script).
+# A user can change the pins; the user setting then stays. "@filemanager" is Nautilus (GNOME) or Dolphin (KDE).
+@filemanager
+firefox.desktop
+google-chrome.desktop
+mld-o365-outlook.desktop
+mld-o365-teams.desktop
+mld-o365-word.desktop
+mld-o365-excel.desktop
+mld-o365-powerpoint.desktop
+mld-o365-onedrive.desktop

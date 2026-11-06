@@ -1,0 +1,9 @@
+[Unit]
+Description=certmonger for the user session (user certificates, TPM keys)
+# Local accounts have no AD certificates. AD users have high UIDs from the sssd ID mapping.
+ConditionPathExists=/etc/mld-cert.conf
+
+[Service]
+ExecCondition=/bin/sh -c 'test "$(id -u)" -ge 100000'
+ExecStart=/usr/sbin/certmonger -s -n
+Restart=on-failure
