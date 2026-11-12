@@ -4,11 +4,20 @@
 
 phase_snx() {
     phase snx
-    install -m 644 "$CFG/vpn/snx-rs.sources" /etc/apt/sources.list.d/snx-rs.sources
-    if ! dpkg -s snx-rs >/dev/null 2>&1; then
-        apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install -y snx-rs
-    fi
+    case "$CLIENT_DISTRO" in
+    ubuntu)
+        install -m 644 "$CFG/vpn/snx-rs.sources" /etc/apt/sources.list.d/snx-rs.sources
+        if ! dpkg -s snx-rs >/dev/null 2>&1; then
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y snx-rs
+        fi
+        ;;
+    fedora)
+        install -D -m 644 "$CFG/vpn/snx-rs.asc" /etc/pki/rpm-gpg/mld-snx-rs.asc
+        install -m 644 "$CFG/vpn/snx-rs.repo" /etc/yum.repos.d/snx-rs.repo
+        pkg_install snx-rs
+        ;;
+    esac
     # The restart ends an open VPN connection, so it occurs only when the drop-in changes.
     local d=/etc/systemd/system/snx-rs.service.d
     if ! cmp -s "$CFG/vpn/snx-rs-tpm.conf" "$d/mld-tpm.conf"; then
@@ -21,10 +30,20 @@ phase_snx() {
 }
 
 phase_snx_remove() {
-    dpkg -s snx-rs >/dev/null 2>&1 || [ -e /etc/apt/sources.list.d/snx-rs.sources ] || return 0
-    phase snx-remove
-    if dpkg -s snx-rs >/dev/null 2>&1; then DEBIAN_FRONTEND=noninteractive apt-get purge -y snx-rs; fi
-    rm -f /etc/apt/sources.list.d/snx-rs.sources
+    case "$CLIENT_DISTRO" in
+    ubuntu)
+        dpkg -s snx-rs >/dev/null 2>&1 || [ -e /etc/apt/sources.list.d/snx-rs.sources ] || return 0
+        phase snx-remove
+        if dpkg -s snx-rs >/dev/null 2>&1; then DEBIAN_FRONTEND=noninteractive apt-get purge -y snx-rs; fi
+        rm -f /etc/apt/sources.list.d/snx-rs.sources
+        ;;
+    fedora)
+        pkg_installed snx-rs || [ -e /etc/yum.repos.d/snx-rs.repo ] || return 0
+        phase snx-remove
+        pkg_purge snx-rs
+        rm -f /etc/yum.repos.d/snx-rs.repo /etc/pki/rpm-gpg/mld-snx-rs.asc
+        ;;
+    esac
     rm -rf /etc/systemd/system/snx-rs.service.d
     systemctl daemon-reload
 }

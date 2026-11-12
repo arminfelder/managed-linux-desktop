@@ -44,6 +44,21 @@ sequenceDiagram
     C->>C: store in NSS database, track, renew before expiry
 ```
 
+## Fedora differences
+
+`CLIENT_DISTRO=fedora` gives the same identity, home and certificate features. These values differ:
+
+| | Ubuntu | Fedora |
+|---|---|---|
+| PAM | `pam-auth-update`, `common-auth`, `common-session` | authselect profile `mld` (custom, based on `sssd`); `pam_mount` is in `/etc/pam.d/system-auth` and `password-auth` |
+| PKCS#11 module | `/usr/lib/x86_64-linux-gnu/pkcs11/libtpm2_pkcs11.so` | `/usr/lib64/pkcs11/libtpm2_pkcs11.so` |
+| AD CA certificates | `/usr/local/share/ca-certificates/mld/`, `update-ca-certificates` | flat files `/etc/pki/ca-trust/source/anchors/mld-*.crt`, `update-ca-trust extract` |
+| SELinux | not used | enforcing; file contexts, one boolean (`use_samba_home_dirs`) and the module `mld` in `client/mld/selinux/` |
+
+NOTE: On Fedora, the CA anchors are flat files with the prefix `mld-`. The p11-kit trust loader may not read subdirectories of `anchors/`. A live check of `trust list` is open.
+
+NOTE: `client verify` checks `getenforce` = `Enforcing` and the AVC denials since boot. `mld-avc-report` hides only the lines that match `client/mld/selinux/avc-ignore.list` (one regex and one bug URL for each line). The list is empty. Do not make SELinux permissive to clear a denial: add a file context, a boolean or a rule in `client/mld/selinux/mld.te`.
+
 ## Join a computer to AD (offline domain join)
 
 The client joins AD as a Windows client does with `djoin.exe`: the DC makes the computer account in `OU=Computers,OU=Linux` and a blob with its password. The client applies the blob (`net offlinejoin requestodj`). No join password goes to the client.

@@ -1,15 +1,20 @@
 #!/usr/bin/python3
-"""Certificate autoenrollment from AD, as the Windows autoenrollment client does it, with keys in the TPM.
+"""Certificate autoenrollment with keys in the TPM: from AD as the Windows client does it, or from FreeIPA.
 
   mld-autoenroll setup machine   TPM token (tpm2-pkcs11), NSS database, certmonger CA (as root)
   mld-autoenroll machine         track every template the computer may autoenroll (as root)
   mld-autoenroll setup user      the same for the logged-in AD user (session certmonger, ~/.pki/nssdb)
   mld-autoenroll user            track every template the user may autoenroll (Kerberos ticket of the login)
   mld-autoenroll status [user]   certmonger requests of this tool
+  mld-autoenroll prune [user]    keep only the newest certificate per key in the TPM token (certmonger post-save)
 
 A template qualifies when the CA publishes it, it is schema version 2 or higher, it has the autoenrollment
 flag, it is a machine (or user) template, and its ACL gives Enroll and Autoenroll to the account or its groups.
 certmonger then makes the key in the TPM token, submits through mld-cm-submit and renews before expiry.
+
+IDP=freeipa (/etc/mld-cert.conf): one machine certificate from the IPA CA (certmonger CA "IPA" of
+ipa-client-install, host keytab) and one user certificate (profile mldUserCert, session CA with ipa-submit and the
+login ticket). The CA ACLs on the server decide who gets a certificate.
 """
 import base64
 import os
@@ -19,9 +24,6 @@ import sqlite3
 import subprocess
 import sys
 import time
-
-from impacket.ldap import ldaptypes
-from impacket.uuid import bin_to_string
 
 GUID_ENROLL = "0e10c968-78fb-11d2-90d4-00c04f79dc55"
 GUID_AUTOENROLL = "a05b8cc2-17bc-4802-a710-e7c15ab866a2"
@@ -112,6 +114,33 @@ def conf():
     return c
 
 
+def freeipa(c):
+    return c.get("IDP", "windows") == "freeipa"
+
+
+def ipa_default():
+    """host and realm of this client: /etc/ipa/default.conf (ipa-client-install)."""
+    out = {}
+    with open("/etc/ipa/default.conf") as f:
+        for line in f:
+            if "=" in line:
+                k, v = line.split("=", 1)
+                out[k.strip()] = v.strip()
+    return out
+
+
+# Fedora, Ubuntu.
+IPA_SUBMIT = ["/usr/libexec/certmonger/ipa-submit", "/usr/lib/certmonger/ipa-submit"]
+
+
+def profile(who):
+    """MACHINE or the user profile. IDP=freeipa: the stock CA IPA for the machine, a session CA for the user."""
+    p = dict(MACHINE) if who == "machine" else user_profile()
+    if freeipa(conf()):
+        p["ca"] = "IPA" if who == "machine" else "mld-ipa-user"
+    return p
+
+
 SECRET_OPTS = {"--userpin", "--sopin", "-P"}
 
 
@@ -131,6 +160,17 @@ def run(cmd, env=None, check=True, quiet=False):
     if not quiet and r.stderr.strip():
         print(r.stderr.strip(), file=sys.stderr)
     return r
+
+
+def tpm2_pkcs11_lib(candidates=None):
+    if candidates is None:
+        names = ["libtpm2_pkcs11.so", "libtpm2_pkcs11.so.1"]
+        dirs = [os.environ.get("PKCS11_DIR"), "/usr/lib64/pkcs11", "/usr/lib/x86_64-linux-gnu/pkcs11"]
+        candidates = [f"{d}/{n}" for d in dirs if d for n in names]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    sys.exit("libtpm2_pkcs11.so not found in: " + ", ".join(candidates))
 
 
 def ldap(c, base, scope, filt, attrs, sd=False):
@@ -162,11 +202,15 @@ def ldap(c, base, scope, filt, attrs, sd=False):
 
 
 def sid_str(raw):
+    # impacket only for AD: IDP=freeipa does not install it.
+    from impacket.ldap import ldaptypes
     return ldaptypes.LDAP_SID(data=raw).formatCanonical()
 
 
 def rights(sd_raw, sids):
     """Enroll/autoenroll rights that the DACL gives to any of sids (deny wins)."""
+    from impacket.ldap import ldaptypes
+    from impacket.uuid import bin_to_string
     sd = ldaptypes.SR_SECURITY_DESCRIPTOR(data=sd_raw)
     allow, deny = set(), set()
     for ace in sd["Dacl"].aces:
@@ -264,6 +308,72 @@ def store_contents(store):
     return labels, pids
 
 
+def store_repair(store):
+    """An interrupted tpm2_ptool init leaves a database with tables but no schema version. Each later init then
+    fails in _get_version ("'NoneType' object is not subscriptable", tpm2-pkcs11 1.10.1, seen 2026-11-18).
+    Move such a database away when it has no rows: then it holds no key. Else stop and change nothing."""
+    db = os.path.join(store, "tpm2_pkcs11.sqlite3")
+    if not os.path.exists(db):
+        return
+    # immutable=1: read without the journal. With mode=ro alone, sqlite tries to roll back the left-over journal
+    # and fails ("attempt to write a readonly database").
+    con = sqlite3.connect(f"file:{db}?mode=ro&immutable=1", uri=True)
+    try:
+        tables ={r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        if "schema" not in tables or con.execute("SELECT count(*) FROM schema").fetchone()[0]:
+            return
+        rows = sum(con.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
+                   for t in ("tokens", "pobjects", "tobjects", "sealobjects") if t in tables)
+    finally:
+        con.close()
+    if rows:
+        sys.exit(f"mld-autoenroll: {db} has no schema version but {rows} rows: repair it by hand")
+    stamp = time.strftime("%Y%m%d%H%M%S")
+    for f in (db, f"{db}-journal"):
+        if os.path.exists(f):
+            os.rename(f, f"{f}.broken-{stamp}")
+    print(f"{db}: no schema version and no rows (interrupted init), moved to *.broken-{stamp}")
+
+
+# certmonger post-save command. The wrapper has the type certmonger_unconfined_exec_t (Fedora fcontexts.list).
+PRUNE = "/usr/local/libexec/mld-cert-prune"
+CKA_CLASS, CKA_VALUE, CKA_ID, CKO_CERTIFICATE = 0, 17, 258, 1
+
+
+def not_after(der):
+    out = subprocess.run(["openssl", "x509", "-inform", "DER", "-noout", "-enddate"], input=der,
+                         capture_output=True, check=True).stdout.decode()
+    return time.mktime(time.strptime(out.strip().split("=", 1)[1], "%b %d %H:%M:%S %Y %Z"))
+
+
+def prune(p):
+    """A renewal (getcert resubmit, auto-renew) adds the new certificate to the token and keeps the old one,
+    with the same CKA_ID (seen 2026-11-18). snx-rs uses all certificates of the slot. Keep the newest per CKA_ID.
+    A certificate object is a row of the tpm2-pkcs11 database only: no TPM object belongs to it."""
+    import yaml
+    db = os.path.join(p["store"], "tpm2_pkcs11.sqlite3")
+    if not os.path.exists(db):
+        return
+    con = sqlite3.connect(db, timeout=30)
+    try:
+        tok = con.execute("SELECT id FROM tokens WHERE label = ?", (p["token"],)).fetchone()
+        if tok is None:
+            return
+        by_id = {}
+        for oid, attrs in con.execute("SELECT id, attrs FROM tobjects WHERE tokid = ?", tok):
+            a = yaml.safe_load(attrs)
+            if a.get(CKA_CLASS) == CKO_CERTIFICATE and CKA_VALUE in a:
+                by_id.setdefault(a.get(CKA_ID), []).append((not_after(bytes.fromhex(a[CKA_VALUE])), oid))
+        old = [oid for certs in by_id.values() for _, oid in sorted(certs)[:-1]]
+        for oid in old:
+            con.execute("DELETE FROM tobjects WHERE id = ?", (oid,))
+        con.commit()
+    finally:
+        con.close()
+    if old:
+        print(f"token {p['token']}: removed {len(old)} replaced certificate(s)")
+
+
 def setup(p, who):
     c = conf()
     if p["session"]:
@@ -285,6 +395,7 @@ def setup(p, who):
         os.umask(old)
     pin = open(p["pin"]).read().strip()
 
+    store_repair(p["store"])
     labels, pids = store_contents(p["store"])
     if p["token"] not in labels:
         if pids:
@@ -301,10 +412,12 @@ def setup(p, who):
     os.makedirs(db, mode=0o700, exist_ok=True)
     if not os.path.exists(f"{db}/cert9.db"):
         run(["certutil", "-N", "-d", p["nssdb"], "--empty-password"])
-    lib = next(l for l in run(["dpkg", "-L", "libtpm2-pkcs11-1"]).stdout.splitlines()
-               if l.endswith("/libtpm2_pkcs11.so") or l.endswith("/libtpm2_pkcs11.so.1"))
+    lib = tpm2_pkcs11_lib()
     mods = run(["modutil", "-dbdir", p["nssdb"], "-list"], env=env, check=False, quiet=True).stdout
-    if "mld-tpm2" not in mods:
+    # Fedora NSS loads tpm2-pkcs11 through p11-kit-proxy. A second load of the module fails with 0x191
+    # (CKR_CRYPTOKI_ALREADY_INITIALIZED), so add the module only when NSS does not show the token yet.
+    visible = any(l.strip() == f"token: {p['token']}" for l in mods.splitlines())
+    if "mld-tpm2" not in mods and not visible:
         # modutil asks for confirmation when a browser could run; -force skips the question.
         run(["modutil", "-dbdir", p["nssdb"], "-add", "mld-tpm2", "-libfile", lib, "-force"], env=env)
 
@@ -317,7 +430,21 @@ def setup(p, who):
             run(["systemctl", "restart", "certmonger.service"])
         run(["systemctl", "enable", "--now", "certmonger.service"])
 
-    helper = f"/usr/local/libexec/mld-cm-submit {who} {c.get('PKI_ENROLL', 'web')}"
+    if freeipa(c) and not p["session"]:
+        # ipa-client-install adds the CA IPA (ipa-submit with the host keytab).
+        cas = run(getcert(p, "list-cas", "-c", "IPA"), check=False, quiet=True).stdout
+        if "CA 'IPA'" not in cas:
+            sys.exit("mld-autoenroll: certmonger has no CA 'IPA': ipa-client-install did not finish")
+        print("certmonger CA IPA (from ipa-client-install)")
+        return
+    if freeipa(c):
+        sub = next((x for x in IPA_SUBMIT if os.path.exists(x)), None)
+        if sub is None:
+            sys.exit("mld-autoenroll: ipa-submit not found in: " + ", ".join(IPA_SUBMIT))
+        # -K: the login ticket of the user. -T: the profile that the CA ACL mld-users allows.
+        helper = f"{sub} -K -T mldUserCert"
+    else:
+        helper = f"/usr/local/libexec/mld-cm-submit {who} {c.get('PKI_ENROLL', 'web')}"
     cas = run(getcert(p, "list-cas", "-c", p["ca"]), check=False, quiet=True).stdout
     verb = "modify-ca" if f"CA '{p['ca']}'" in cas else "add-ca"
     run(getcert(p, verb, "-c", p["ca"], "-e", helper))
@@ -329,8 +456,38 @@ def stuck(p, rid):
     return "stuck: yes" in out
 
 
+def enroll_ipa(p, who):
+    """One certificate for the machine or the user. The server (CA ACL, profile) decides, not the client."""
+    d = ipa_default()
+    if who == "machine":
+        host = d["host"]
+        rid, args = "mld-ipa-machine", ["-K", f"host/{host}", "-D", host, "-N", f"CN={host}", "-n", "mld-machine"]
+    else:
+        if run(["klist", "-s"], check=False, quiet=True).returncode != 0:
+            sys.exit("mld-autoenroll: no Kerberos ticket: log in with the IPA password or run kinit")
+        account = os.environ.get("USER") or run(["id", "-un"]).stdout.strip()
+        rid, args = "mld-ipa-user", ["-K", f"{account}@{d['realm']}", "-N", f"CN={account}", "-n", "mld-user"]
+    post = f"{PRUNE} {who}"
+    have = tracked(p)
+    if rid in have and stuck(p, rid):
+        run(getcert(p, "stop-tracking", "-i", rid))
+        print(f"  {rid} was stuck: requested again")
+    elif rid in have:
+        # A request from before the post-save command gets it now (start-tracking -i changes the request).
+        run(getcert(p, "start-tracking", "-i", rid, "-C", post))
+        print(f"  {rid}: tracked")
+        prune(p)
+        return
+    run(getcert(p, "request", "-I", rid, "-c", p["ca"], "-d", p["nssdb"], "-t", p["token"], "-p", p["pin"],
+                "-G", "rsa", "-g", "2048", "-C", post, *args, "-w"))
+    print(f"  requested {rid} from CA {p['ca']}")
+
+
 def enroll(p, who):
     c = conf()
+    if freeipa(c):
+        enroll_ipa(p, who)
+        return
     domain = c["DC_FQDN"].split(".", 1)[1]
     if who == "machine":
         host = kinit_machine()
@@ -344,20 +501,24 @@ def enroll(p, who):
     print(f"templates for {account}:")
     want = qualifying_templates(c, account, machine=(who == "machine"))
     have = tracked(p)
+    post = f"{PRUNE} {who}"
     for name in want:
         rid = f"mld-{name}"
         if rid in have and stuck(p, rid):
             run(getcert(p, "stop-tracking", "-i", rid))
             print(f"  {rid} was stuck: requested again")
         elif rid in have:
+            # A request from before the post-save command gets it now (start-tracking -i changes the request).
+            run(getcert(p, "start-tracking", "-i", rid, "-C", post))
             continue
         run(getcert(p, "request", "-I", rid, "-c", p["ca"], "-T", name,
                     "-d", p["nssdb"], "-n", name, "-t", p["token"], "-p", p["pin"],
-                    "-G", "rsa", "-g", "2048", "-N", subject, "-w"))
+                    "-G", "rsa", "-g", "2048", "-N", subject, "-C", post, "-w"))
         print(f"  requested {name} (certmonger {rid})")
     for rid in sorted(have - {f"mld-{n}" for n in want}):
         run(getcert(p, "stop-tracking", "-i", rid))
         print(f"  stopped {rid}: the template does not qualify any more")
+    prune(p)
 
 
 def status(p):
@@ -369,22 +530,26 @@ def status(p):
 
 def main():
     args = sys.argv[1:]
-    if args in (["setup", "machine"], ["machine"]) and os.getuid() != 0:
+    if args in (["setup", "machine"], ["machine"], ["prune"], ["prune", "machine"]) and os.getuid() != 0:
         sys.exit("mld-autoenroll: machine needs root")
     if args and "user" in args and os.getuid() == 0:
         sys.exit("mld-autoenroll: run user mode as the AD user")
     if args == ["setup", "machine"]:
-        setup(MACHINE, "machine")
+        setup(profile("machine"), "machine")
     elif args == ["machine"]:
-        enroll(MACHINE, "machine")
+        enroll(profile("machine"), "machine")
     elif args == ["setup", "user"]:
-        setup(user_profile(), "user")
+        setup(profile("user"), "user")
     elif args == ["user"]:
-        enroll(user_profile(), "user")
+        enroll(profile("user"), "user")
     elif args == ["status"]:
-        status(MACHINE)
+        status(profile("machine"))
     elif args == ["status", "user"]:
-        status(user_profile())
+        status(profile("user"))
+    elif args in (["prune"], ["prune", "machine"]):
+        prune(profile("machine"))
+    elif args == ["prune", "user"]:
+        prune(profile("user"))
     else:
         sys.exit(__doc__)
 

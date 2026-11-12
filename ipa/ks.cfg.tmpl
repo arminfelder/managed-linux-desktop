@@ -1,0 +1,57 @@
+# Rendered by build.sh (dc iso, IDP=freeipa) into the IPAPROV CD. The CD holds lab secrets: never commit it.
+text
+lang en_US.UTF-8
+keyboard us
+timezone @@GUEST_TZ@@ --utc
+url --mirrorlist="https://mirrors.fedoraproject.org/mirrorlist?repo=fedora-45&arch=x86_64"
+repo --name=updates --mirrorlist="https://mirrors.fedoraproject.org/mirrorlist?repo=updates-released-f45&arch=x86_64"
+# Static address: the server is the DNS server of the lab. The install itself resolves through the libvirt network.
+network --bootproto=static --device=link --ip=@@DC_IP@@ --netmask=255.255.255.0 --gateway=@@NET_GW@@ --nameserver=@@NET_GW@@ --hostname=@@DC_FQDN@@ --activate
+selinux --enforcing
+# No password login: the host controls the server through the guest agent only.
+rootpw --lock
+firstboot --disable
+services --enabled=qemu-guest-agent
+zerombr
+clearpart --all --initlabel
+autopart --type=lvm --fstype=xfs --nohome
+poweroff
+
+%packages
+@core
+freeipa-server
+freeipa-server-dns
+nfs-utils
+qemu-guest-agent
+policycoreutils-python-utils
+audit
+bind-utils
+curl
+%end
+
+%post --nochroot --erroronfail --log=/mnt/sysroot/root/ks-post-nochroot.log
+mkdir -p /mnt/ipaprov
+mount -o ro /dev/disk/by-label/IPAPROV /mnt/ipaprov
+install -D -m 755 /mnt/ipaprov/provision/run.sh /mnt/sysroot/usr/local/sbin/mld-ipa-provision
+install -d -m 755 /mnt/sysroot/usr/local/lib/mld-ipa
+install -m 644 /mnt/ipaprov/provision/0*.sh /mnt/sysroot/usr/local/lib/mld-ipa/
+install -d -m 755 /mnt/sysroot/usr/local/lib/mld-ipa/policy
+install -m 644 /mnt/ipaprov/provision/policy/*.json /mnt/sysroot/usr/local/lib/mld-ipa/policy/
+install -d -m 700 /mnt/sysroot/etc/mld-ipa
+install -m 600 /mnt/ipaprov/provision/config.env /mnt/sysroot/etc/mld-ipa/config.env
+install -m 644 /mnt/ipaprov/mld-ipa-provision.service /mnt/sysroot/etc/systemd/system/mld-ipa-provision.service
+install -D -m 755 /mnt/ipaprov/qemu-ga-run.sh /mnt/sysroot/usr/libexec/mld/qemu-ga-run
+umount /mnt/ipaprov
+%end
+
+%post --erroronfail --log=/root/ks-post.log
+set -e
+echo '@@DC_IP@@ @@DC_FQDN@@' >> /etc/hosts
+# The host runs its snippets through this wrapper, unconfined (as on the Fedora client). -N: no reload in the chroot.
+semanage boolean -N -m --on virt_qemu_ga_run_unconfined
+semanage fcontext -N -a -t virt_qemu_ga_unconfined_exec_t /usr/libexec/mld/qemu-ga-run
+restorecon -R /usr/libexec/mld /usr/local/sbin /usr/local/lib/mld-ipa /etc/mld-ipa /etc/systemd/system
+systemctl enable mld-ipa-provision.service qemu-guest-agent.service
+systemctl set-default multi-user.target
+grubby --update-kernel=ALL --args="console=tty0 console=ttyS0,115200n8"
+%end

@@ -53,10 +53,64 @@ cmd_check() {
     log "all prerequisites present"
 }
 
+# Fedora CHECKSUM lines are "SHA256 (file) = sum". The file is signed: without fedora.gpg in MEDIA_DIR
+# (a binary keyring for gpgv) the ISO stays NO-SUM and ./build.sh pin records it (trust on first use).
+fetch_fedora_sums() {
+    local sums="$MEDIA_DIR/$(basename "$FEDORA_SUMS_URL")" iso n want signed
+    mkdir -p "$MEDIA_DIR"
+    curl -fL --retry 5 --retry-all-errors -s -o "$sums.part" "$FEDORA_SUMS_URL" \
+        || die "download failed after retries: $FEDORA_SUMS_URL"
+    mv "$sums.part" "$sums"
+    if [ ! -f "$MEDIA_DIR/fedora.gpg" ]; then
+        warn "no $MEDIA_DIR/fedora.gpg: the Fedora CHECKSUM signature is not checked"
+        return
+    fi
+    # Only the signed text counts: lines outside the clearsigned block are not checked by gpgv.
+    signed=$(gpgv --keyring "$MEDIA_DIR/fedora.gpg" --output - "$sums" 2>/dev/null) || die "bad signature on $sums"
+    iso=$(basename "$FEDORA_ISO")
+    want=$(awk -v p="SHA256 ($iso) = " 'index($0, p) == 1 { print substr($0, length(p) + 1) }' <<<"$signed")
+    n=$(grep -c . <<<"$want" || true)
+    [ "$n" = 1 ] || die "want one SHA256 line for $iso in the signed part of $sums, found $n"
+    [[ "$want" =~ ^[0-9a-f]{64}$ ]] || die "bad SHA256 value for $iso in $sums: $want"
+    if [ -z "$(sum_for "$iso")" ]; then
+        printf '%s  %s\n' "$want" "$iso" >> "$HERE/checksums.sha256"
+        log "pinned $iso from the signed Fedora CHECKSUM"
+    fi
+}
+
+fetch_client_media() {
+    if [ "$CLIENT_DISTRO" = fedora ]; then
+        fetch_one "$FEDORA_ISO" "$FEDORA_URL"
+        fetch_fedora_sums
+    else
+        fetch_one "$UBUNTU_ISO" "$UBUNTU_URL"
+    fi
+}
+
+# Same rule as setup: a file with no sum is pinned on first use, a file with a different sum stops the build.
+client_media() {
+    [ -f "$CLIENT_ISO" ] || fetch_client_media
+    if [ -z "$(sum_for "$(basename "$CLIENT_ISO")")" ]; then
+        pin_media
+        warn "new sums in checksums.sha256: commit the file"
+    fi
+    verify_one "$CLIENT_ISO" || die "$(basename "$CLIENT_ISO") not verified: do not use this file"
+}
+
+fetch_server_media() {
+    if [ "$IDP" = freeipa ]; then
+        [ "$CLIENT_DISTRO" = fedora ] && return 0
+        fetch_one "$FEDORA_ISO" "$FEDORA_URL"
+        fetch_fedora_sums
+    else
+        fetch_one "$WINSERVER_ISO" "$WINSERVER_URL"
+        fetch_one "$VIRTIO_ISO"    "$VIRTIO_URL"
+    fi
+}
+
 cmd_fetch() {
-    fetch_one "$WINSERVER_ISO" "$WINSERVER_URL"
-    fetch_one "$VIRTIO_ISO"    "$VIRTIO_URL"
-    fetch_one "$UBUNTU_ISO"    "$UBUNTU_URL"
+    fetch_server_media
+    fetch_client_media
     verify_media || die "media not verified. For NO-SUM: check the files, then ./build.sh pin"
     log "media ready"
 }

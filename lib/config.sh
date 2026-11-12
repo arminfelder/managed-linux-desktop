@@ -19,23 +19,50 @@ PROBE_USER="${LAB_USER_LIST[0]}"
 SMB_SEAL=$([ "${SMB_ENCRYPT:-1}" = 1 ] && echo ',seal' || true)
 # Defaults for values that an older lab.env does not have.
 CA_NAME="${CA_NAME:-MLD-Lab-CA}"
-PKI_ENROLL="${PKI_ENROLL:-web}"
-PKI_ENROLL="${PKI_ENROLL,,}"
-[[ "$PKI_ENROLL" =~ ^(web|dcom|none)$ ]] || die "PKI_ENROLL must be web, dcom or none, not '$PKI_ENROLL'"
+IDP="${IDP:-windows}"
+[[ "$IDP" =~ ^(windows|freeipa)$ ]] || die "IDP must be windows or freeipa, not '$IDP'"
 CIFS_HOME="${CIFS_HOME:-1}"
+NFS_HOME="${NFS_HOME:-1}"
+if [ "$IDP" = freeipa ]; then
+    PKI_ENROLL="${PKI_ENROLL:-ipa}" PKI_ENROLL="${PKI_ENROLL,,}"
+    [[ "$PKI_ENROLL" =~ ^(ipa|none)$ ]] || die "IDP=freeipa: PKI_ENROLL must be ipa or none, not '$PKI_ENROLL'"
+    [[ "$NFS_HOME" =~ ^[01]$ ]] || die "NFS_HOME must be 0 or 1, not '$NFS_HOME'"
+    HOME_MODE=$([ "$NFS_HOME" = 1 ] && echo nfs || echo local)
+    O365_APPS="${O365_APPS:-0}"
+    # FreeIPA keeps group names in lower case. The sssd ipa provider compares names case-sensitively.
+    IDM_GROUP="${LINUX_GROUP,,}"
+else
+    PKI_ENROLL="${PKI_ENROLL:-web}" PKI_ENROLL="${PKI_ENROLL,,}"
+    [[ "$PKI_ENROLL" =~ ^(web|dcom|none)$ ]] || die "PKI_ENROLL must be web, dcom or none, not '$PKI_ENROLL'"
+    HOME_MODE=$([ "$CIFS_HOME" = 1 ] && echo cifs || echo local)
+    O365_APPS="${O365_APPS:-1}"
+    IDM_GROUP="$LINUX_GROUP"
+fi
+[[ "$O365_APPS" =~ ^[01]$ ]] || die "O365_APPS must be 0 or 1, not '$O365_APPS'"
 SNX_RS="${SNX_RS:-1}"
 BRAND_BG="${BRAND_BG:-#1e3a5f}"
 CLIENT_DE="${CLIENT_DE:-gnome}"
-case "$CLIENT_DE" in
-    gnome) CLIENT_DESKTOP=ubuntu-desktop-minimal CLIENT_DM=gdm3 ;;
-    kde) CLIENT_DESKTOP=kde-plasma-desktop CLIENT_DM=sddm ;;
-    *) die "CLIENT_DE must be gnome or kde, not '$CLIENT_DE'" ;;
+CLIENT_DISTRO="${CLIENT_DISTRO:-ubuntu}"
+[[ "$CLIENT_DISTRO" =~ ^(ubuntu|fedora)$ ]] || die "CLIENT_DISTRO must be ubuntu or fedora, not '$CLIENT_DISTRO'"
+[[ "$CLIENT_DE" =~ ^(gnome|kde)$ ]] || die "CLIENT_DE must be gnome or kde, not '$CLIENT_DE'"
+case "$CLIENT_DISTRO/$CLIENT_DE" in
+    ubuntu/gnome) CLIENT_DESKTOP=ubuntu-desktop-minimal CLIENT_DM=gdm3 CLIENT_DM_UNIT=gdm.service ;;
+    ubuntu/kde) CLIENT_DESKTOP=kde-plasma-desktop CLIENT_DM=sddm CLIENT_DM_UNIT=sddm.service ;;
+    fedora/gnome) CLIENT_DESKTOP=workstation-product-environment CLIENT_DM=gdm CLIENT_DM_UNIT=gdm.service ;;
+    fedora/kde) CLIENT_DESKTOP=kde-desktop-environment CLIENT_DM=plasma-login-manager CLIENT_DM_UNIT=plasmalogin.service ;;
 esac
+if [ "$CLIENT_DISTRO" = fedora ]; then
+    CLIENT_ISO="$FEDORA_ISO" CLIENT_INSTALL_ISO="$STAGE/fedora-ks.iso"
+    CLIENT_OS_VARIANTS="fedora45 fedora44 fedora-unknown linux2024 linux2022"
+else
+    CLIENT_ISO="$UBUNTU_ISO" CLIENT_INSTALL_ISO="$STAGE/ubuntu-autoinstall.iso"
+    CLIENT_OS_VARIANTS="ubuntu26.04 ubuntu25.10 ubuntu25.04 ubuntu24.04 linux2024 linux2022"
+fi
 MACHINE_TOKEN_PIN="${MACHINE_TOKEN_PIN:-mld-machine}"
 [[ "$MACHINE_TOKEN_PIN" =~ ^[A-Za-z0-9._-]+$ ]] || die "MACHINE_TOKEN_PIN: letters, digits, '.', '_' and '-' only"
 UKI_TRUST="${UKI_TRUST:-db}"
 [[ "$UKI_TRUST" =~ ^(db|mok)$ ]] || die "UKI_TRUST must be db or mok, not '$UKI_TRUST'"
-export CA_NAME PKI_ENROLL CIFS_HOME SNX_RS CLIENT_DE BRAND_BG BRAND_LOGO CLIENT_DESKTOP CLIENT_DM MACHINE_TOKEN_PIN UKI_TRUST DHCP_START DHCP_END REALM DC_FQDN DOMAIN_DN LINUX_OU LINUX_GROUPS_OU PROBE_USER SMB_SEAL
+export IDP NFS_HOME HOME_MODE O365_APPS IDM_GROUP CA_NAME PKI_ENROLL CIFS_HOME SNX_RS CLIENT_DE BRAND_BG BRAND_LOGO CLIENT_DESKTOP CLIENT_DM CLIENT_DM_UNIT CLIENT_DISTRO CLIENT_ISO CLIENT_INSTALL_ISO CLIENT_OS_VARIANTS MACHINE_TOKEN_PIN UKI_TRUST DHCP_START DHCP_END REALM DC_FQDN DOMAIN_DN LINUX_OU LINUX_GROUPS_OU PROBE_USER SMB_SEAL
 
 need_secrets() {
     local v bad=""
@@ -56,6 +83,10 @@ def esc(v):
         return v.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     if mode == "yaml":
         return v.replace("'", "''")
+    if mode == "ks":
+        if "\n" in v or "\r" in v:
+            sys.exit(f"{src}: a value contains a line break: a kickstart line cannot hold it")
+        return v.replace("\\", "\\\\").replace('"', '\\"')
     return v
 missing = set()
 def sub(m):

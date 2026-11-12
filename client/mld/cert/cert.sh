@@ -15,8 +15,8 @@ set -euo pipefail
 # shellcheck source=/dev/null
 . /etc/mld-cert.conf
 
-# One file per AD CA certificate (update-ca-certificates also reads subdirectories), and all of them in one bundle.
-CA_DIR=/usr/local/share/ca-certificates/mld
+# One file mld-<fingerprint>.crt per AD CA certificate in CA_DIR, and all of them in one bundle.
+# CA_PREFIX scopes every glob: on Fedora the directory (anchors) holds foreign files too.
 CA_BUNDLE=/etc/mld-ca.pem
 CHROME_CA=/etc/opt/chrome/policies/managed/mld-ca.json
 # propquery: prefer the TPM provider for key operations; "default" does the rest (encoding, hashing).
@@ -25,6 +25,14 @@ TPM=(-provider tpm2 -provider default -propquery '?provider=tpm2')
 CERTSRV="https://$DC_FQDN/certsrv"
 
 die() { echo "mld-cert: $*" >&2; exit 1; }
+
+# Old mld-cert.conf files (Ubuntu only) have no CA_ANCHOR_DIR.
+CLIENT_DISTRO=${CLIENT_DISTRO:-ubuntu}
+if [ -z "${CA_ANCHOR_DIR:-}" ]; then
+    [ "$CLIENT_DISTRO" = ubuntu ] || die "CA_ANCHOR_DIR missing in /etc/mld-cert.conf: run ./build.sh client resume"
+    CA_ANCHOR_DIR=/usr/local/share/ca-certificates/mld CA_ANCHOR_PREFIX=
+fi
+CA_DIR=$CA_ANCHOR_DIR CA_PREFIX=${CA_ANCHOR_PREFIX:-}
 
 machine_ticket() {
     export KRB5CCNAME=FILE:/run/mld-machine.ccache
@@ -131,6 +139,13 @@ check() {
 
 cmd_ca() {
     [ "$(id -u)" = 0 ] || die "ca needs root"
+    # Root only: /etc/mld is readable here. Source before the RETURN trap: a sourced file would fire it.
+    # shellcheck source=/dev/null
+    CLIENT_DISTRO=$(. /etc/mld/config.env && echo "$CLIENT_DISTRO") || die "missing /etc/mld/config.env: run ./build.sh client resume"
+    export CLIENT_DISTRO
+    # shellcheck source=/dev/null
+    . /etc/mld/distro.sh || die "missing /etc/mld/distro.sh: run ./build.sh client resume"
+    CA_DIR=$CA_ANCHOR_DIR CA_PREFIX=$CA_ANCHOR_PREFIX
     machine_ticket
     # As on Windows: trust each CA certificate in this AD container. A renewed CA adds a value to cACertificate.
     # From AD over LDAP (Kerberos, signed): https to certsrv needs the CA first.
@@ -151,23 +166,23 @@ cmd_ca() {
     [ "$n" -gt 0 ] || die "no CA certificate in $base"
 
     install -d -m 755 "$CA_DIR"
-    for f in "$CA_DIR"/*.crt; do
+    for f in "$CA_DIR"/${CA_PREFIX}*.crt; do
         if [ -e "$f" ] && [ ! -e "$tmp/new/${f##*/}" ]; then rm -f "$f"; changed=1; echo "removed: ${f##*/} (not in AD)"; fi
     done
     for f in "$tmp/new"/*.crt; do
         if ! cmp -s "$f" "$CA_DIR/${f##*/}"; then install -m 644 "$f" "$CA_DIR/"; changed=1; echo "added: ${f##*/}"; fi
     done
-    # Older versions had one file for the CA named CA_NAME.
-    if [ -e /usr/local/share/ca-certificates/mld-ca.crt ]; then rm -f /usr/local/share/ca-certificates/mld-ca.crt; changed=1; fi
-    if [ "$changed" = 1 ]; then update-ca-certificates >/dev/null; fi
+    # Older Ubuntu versions had one file for the CA named CA_NAME.
+    if [ "$CLIENT_DISTRO" = ubuntu ] && [ -e /usr/local/share/ca-certificates/mld-ca.crt ]; then rm -f /usr/local/share/ca-certificates/mld-ca.crt; changed=1; fi
+    if [ "$changed" = 1 ]; then ca_trust_update; fi
 
-    cat "$CA_DIR"/*.crt > "$tmp/bundle"
+    cat "$CA_DIR"/${CA_PREFIX}*.crt > "$tmp/bundle"
     cmp -s "$tmp/bundle" "$CA_BUNDLE" || install -m 644 "$tmp/bundle" "$CA_BUNDLE"
     # Chrome does not read the system store on Linux. The policy gives it the same certificates (DER, base64).
-    for f in "$CA_DIR"/*.crt; do list+="${list:+, }\"$(openssl x509 -in "$f" -outform DER | base64 -w0)\""; done
+    for f in "$CA_DIR"/${CA_PREFIX}*.crt; do list+="${list:+, }\"$(openssl x509 -in "$f" -outform DER | base64 -w0)\""; done
     printf '{\n  "CACertificates": [%s]\n}\n' "$list" > "$tmp/chrome.json"
     cmp -s "$tmp/chrome.json" "$CHROME_CA" || install -D -m 644 "$tmp/chrome.json" "$CHROME_CA"
-    for f in "$CA_DIR"/*.crt; do
+    for f in "$CA_DIR"/${CA_PREFIX}*.crt; do
         echo "${f##*/}: $(openssl x509 -in "$f" -noout -subject -enddate -nameopt RFC2253 | tr '\n' ' ')"
     done
 }

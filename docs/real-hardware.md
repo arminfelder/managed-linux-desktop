@@ -15,6 +15,8 @@ The device needs a wired network that reaches the DC (DNS and Kerberos to `DC_IP
 
 These procedures use ASD-STE100 Simplified Technical English.
 
+With `CLIENT_DISTRO=fedora`, the image is a Fedora 45 Everything netinstall ISO with a partial kickstart (`lib/hw-ks.py`): no storage, user and network sections, so Anaconda asks for them. The steps in "Install a device" differ only on the installer screens: see [Fedora differences](#fedora-differences).
+
 ```mermaid
 flowchart LR
     odj["build.sh client odj NAME<br/>(DC: djoin /provision)"] --> iso["build.sh client hw-iso<br/>.stage/mld-hw.iso"]
@@ -78,6 +80,20 @@ NOTE: The first boot checks that the root file system is on LUKS2. If you did no
 NOTE: The login message shows the open steps until `mld-firstboot secure` is complete.
 
 NOTE: MokManager waits approximately 10 seconds for a key. If the device starts without MokManager, run `sudo mld-firstboot secure` again: it shows the pending request.
+
+## Fedora differences
+
+1. In the boot menu, select the first entry. Each entry of the patched menu carries `inst.ks=`.
+2. In the installation summary, select the installation destination, and select "Encrypt my data". Type the LUKS passphrase.
+3. Create the administrator user. The first user (UID 1000) is the admin of the client. A missing user stops the install.
+4. Do steps 9 to 13 of "Install a device".
+5. Do the procedure "Secure the device (recovery key, MOK, TPM2)".
+
+NOTE: `client hw-iso` patches the boot menu in three places: the ISO `EFI/BOOT/grub.cfg`, `boot/grub2/grub.cfg` and the copy in `images/efiboot.img`. A USB stick boots the copy in the EFI image.
+
+NOTE: The Fedora `hw-iso` supports only the Lorax layout, where the EFI image is an appended partition of the ISO. If the ISO has a path-based El Torito EFI layout, the script stops with an error. It does not make an image that ignores the kickstart.
+
+NOTE: The Fedora `hw-iso` is checked by the render test only. It is not tested in Anaconda or on hardware.
 
 ## Test the stick in a VM
 

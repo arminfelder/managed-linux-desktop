@@ -1,0 +1,9 @@
+# Key fingerprint EB4C1BFD4F042F6DDDCCEC917721F63BD38B4796 (google-linux-signing.asc, same key as google-chrome.sources).
+# Only when fedora-workstation-repositories is not installed: that package has the repo google-chrome.
+[google-chrome]
+name=google-chrome
+baseurl=https://dl.google.com/linux/chrome/rpm/stable/x86_64
+enabled=1
+gpgcheck=1
+repo_gpgcheck=0
+gpgkey=file:///etc/pki/rpm-gpg/mld-google-chrome.asc

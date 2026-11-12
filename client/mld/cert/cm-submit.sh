@@ -10,7 +10,6 @@
 set -uo pipefail
 
 who="${1:-machine}" how="${2:-web}"
-CA_DIR=/usr/local/share/ca-certificates/mld
 
 case "${CERTMONGER_OPERATION:-SUBMIT}" in
     IDENTIFY)
@@ -21,8 +20,13 @@ case "${CERTMONGER_OPERATION:-SUBMIT}" in
         # All CA certificates from AD (mld-cert ca): a nickname line, then the PEM, for each one.
         # shellcheck source=/dev/null
         . /etc/mld-cert.conf
+        CLIENT_DISTRO=${CLIENT_DISTRO:-ubuntu}
+        if [ -z "${CA_ANCHOR_DIR:-}" ]; then
+            [ "$CLIENT_DISTRO" = ubuntu ] || { echo "CA_ANCHOR_DIR missing in /etc/mld-cert.conf: run ./build.sh client resume" >&2; exit 3; }
+            CA_ANCHOR_DIR=/usr/local/share/ca-certificates/mld CA_ANCHOR_PREFIX=
+        fi
         n=0
-        for f in "$CA_DIR"/*.crt; do
+        for f in "$CA_ANCHOR_DIR"/${CA_ANCHOR_PREFIX:-}*.crt; do
             [ -s "$f" ] || continue
             n=$((n + 1)); if [ "$n" = 1 ]; then echo "$CA_NAME"; else echo "$CA_NAME $n"; fi; cat "$f"
         done

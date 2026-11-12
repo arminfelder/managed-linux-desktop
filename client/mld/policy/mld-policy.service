@@ -1,0 +1,8 @@
+[Unit]
+Description=MLD browser policy from the FreeIPA server
+Wants=network-online.target
+After=network-online.target sssd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mld-policy

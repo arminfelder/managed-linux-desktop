@@ -13,7 +13,7 @@ the QEMU guest agent.
 | VM | OS | Role |
 |---|---|---|
 | `mld-dc` (SeaBIOS) | Windows Server 2025 evaluation | AD DS forest `mld.contoso.com`, DNS, file server (`Homes$`), AD CS enterprise CA with web enrollment |
-| `mld-client` (OVMF Secure Boot, swtpm) | Ubuntu 26.04 LTS desktop | device under test |
+| `mld-client` (OVMF Secure Boot, swtpm) | Ubuntu 26.04 LTS desktop, or Fedora 45 with `CLIENT_DISTRO=fedora` (SELinux enforcing; see the [design spec](superpowers/specs/2026-11-12-fedora-client-design.md)) | device under test |
 
 Network `mld-lab`, NAT, `10.110.0.0/24` (DC `.2`, client `.20`).
 

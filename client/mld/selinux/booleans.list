@@ -1,0 +1,7 @@
+# name on|off
+# pam_mount mounts the CIFS home with cifs.upcall. Without this boolean, confined services are denied access to the home.
+use_samba_home_dirs on
+# IDP=freeipa: autofs mounts the NFS home (sec=krb5p). Without this boolean, confined services are denied access to it.
+use_nfs_home_dirs on
+# The guest agent runs the lab snippets of build.sh unconfined (wrapper /usr/libexec/mld/qemu-ga-run). Without it, guest-exec stays in virt_qemu_ga_t.
+virt_qemu_ga_run_unconfined on

@@ -1,0 +1,98 @@
+# Rendered by build.sh into the CIDATA CD. Contains lab secrets: never commit the rendered file.
+text
+lang en_US.UTF-8
+keyboard us
+timezone @@GUEST_TZ@@ --utc
+url --mirrorlist="https://mirrors.fedoraproject.org/mirrorlist?repo=fedora-45&arch=x86_64"
+repo --name=updates --mirrorlist="https://mirrors.fedoraproject.org/mirrorlist?repo=updates-released-f45&arch=x86_64"
+# DHCP gives the address (fixed by MAC in libvirt/mld-lab.xml). DNS must be the DC, so AD SRV lookups work.
+network --bootproto=dhcp --device=link --hostname=@@CLIENT_HOSTNAME@@ --nameserver=@@DC_IP@@ --ipv4-ignore-auto-dns --ipv4-dns-search=@@DOMAIN@@
+selinux --enforcing
+rootpw --lock
+firstboot --disable
+user --name=@@CLIENT_ADMIN@@ --groups=wheel --iscrypted --password="@@CLIENT_ADMIN_HASH@@"
+services --enabled=sshd,qemu-guest-agent
+# ESP + /boot (plain) + LUKS2 PV + LVM root. The passphrase is the first keyslot.
+zerombr
+clearpart --all --initlabel
+part /boot/efi --fstype=efi --size=1024
+part /boot --fstype=ext4 --size=1024
+part pv.01 --grow --encrypted --luks-version=luks2 --passphrase="@@LUKS_PASSPHRASE@@"
+volgroup vg0 pv.01
+logvol / --vgname=vg0 --name=root --fstype=xfs --grow --size=8192
+reboot
+
+%packages
+@^@@CLIENT_DESKTOP@@
+sssd
+sssd-tools
+sssd-ad
+sssd-client
+realmd
+adcli
+samba-common-tools
+krb5-workstation
+pam_mount
+cifs-utils
+keyutils
+bind-utils
+tpm2-tools
+libfido2
+fido2-tools
+mokutil
+efibootmgr
+sbsigntools
+binutils
+systemd-boot-unsigned
+tpm2-openssl
+python3-impacket
+openldap-clients
+cyrus-sasl-gssapi
+certmonger
+tpm2-pkcs11
+tpm2-pkcs11-tools
+nss-tools
+openssl
+opensc
+curl
+qemu-guest-agent
+policycoreutils-python-utils
+checkpolicy
+audit
+# mcelog does not support AMD CPUs and fails at each boot there (the kernel module edac_mce_amd does the work).
+-mcelog
+%end
+
+# Anaconda reads "services" before %post, so the unit of mld-firstboot does not exist yet then.
+# --erroronfail stops the install when a %post fails, so the VM does not shut off.
+# The chrooted %post enables it after the install.list loop has installed the unit file.
+%post --nochroot --erroronfail --log=/mnt/sysroot/root/ks-post-nochroot.log
+mkdir -p /mnt/cidata
+mount -o ro /dev/disk/by-label/CIDATA /mnt/cidata
+install -d -m 700 /mnt/sysroot/etc/mld
+cp -a /mnt/cidata/mld/. /mnt/sysroot/etc/mld/
+chmod 700 /mnt/sysroot/etc/mld
+chmod 600 /mnt/sysroot/etc/mld/odj.txt /mnt/sysroot/etc/mld/luks-pass /mnt/sysroot/etc/mld/admin-hash
+if [ -d /mnt/sysroot/etc/mld/sb ]; then chmod 700 /mnt/sysroot/etc/mld/sb; chmod 600 /mnt/sysroot/etc/mld/sb/*; fi
+umount /mnt/cidata
+%end
+
+%post --erroronfail --log=/root/ks-post.log
+set -e
+while read -r src dst mode; do
+  case "$src" in ""|"#"*) continue ;; esac
+  [ "$dst" = - ] || install -D -m "$mode" "/etc/mld/$src" "$dst"
+done < /etc/mld/install.list
+# The host controls the client through the guest agent, also during the first boot: the SELinux lists apply now.
+# -N: no policy reload in the installer chroot. phase_selinux applies the lists again.
+awk '!/^[[:space:]]*(#|$)/' /etc/mld/selinux/booleans.list | while read -r name val; do semanage boolean -N -m "--$val" "$name"; done
+awk '!/^[[:space:]]*(#|$)/' /etc/mld/selinux/fcontexts.list | while read -r re type; do semanage fcontext -N -a -t "$type" "$re"; done
+restorecon -R /etc /usr/local /usr/share/mld /usr/libexec/mld
+systemctl enable mld-firstboot.service qemu-guest-agent.service sshd.service
+# A text-mode install leaves the default target at multi-user.target.
+systemctl set-default graphical.target
+# Serial console: build.sh client unlock reads the passphrase prompt there and types the passphrase.
+grubby --update-kernel=ALL --args="console=tty0 console=ttyS0,115200n8"
+# UKI=1 only (the script exits otherwise): build the signed UKI of each kernel, with its boot entry.
+/usr/local/sbin/mld-uki all
+%end

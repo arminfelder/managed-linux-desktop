@@ -1,0 +1,37 @@
+module mld 1.0.0;
+
+# Rules from real denials (first live build 2026-11-17, selinux-policy 45). Each block names the denial.
+require {
+	type cifs_helper_t;
+	type user_tmp_t;
+	type sshd_session_t;
+	type xdm_t;
+	type local_login_t;
+	type init_t;
+	type home_root_t;
+	type mount_var_run_t;
+	type rpcbind_t;
+	type unreserved_port_t;
+	class file { getattr open read lock };
+	class dir { getattr search write add_name remove_name create rmdir setattr };
+	class udp_socket name_bind;
+}
+
+# rpcbind (rpcbind-1.3.1-0.fc45, pulled in by nfs-utils) binds a random UDP port at start (seen 2026-11-18).
+# Denied: name_bind on unreserved_port_t.
+allow rpcbind_t unreserved_port_t:udp_socket name_bind;
+
+# cifs.upcall reads the Kerberos ticket of the user for the sec=krb5 home mount.
+# The ticket cache is FILE:/tmp/krb5cc_%U (user_tmp_t). Denied: open.
+allow cifs_helper_t user_tmp_t:file { getattr open read lock };
+
+# pam_mount (mkmountpoint) makes /home/USER at login and removes it at logout.
+# Denied for sshd_session_t: write on /home. gdm (xdm_t) and the console login (local_login_t) run the same
+# pam_mount code: the rules for them are not from a seen denial yet.
+allow { sshd_session_t xdm_t local_login_t } home_root_t:dir { getattr search write add_name remove_name create rmdir setattr };
+
+# mld-home-umount (ExecStopPost of user@.service, init_t) removes the empty mount point. Denied: rmdir.
+allow init_t home_root_t:dir { write remove_name rmdir };
+
+# pam_mount reads the mount table. Denied: getattr on /run/mount/utab.
+allow { sshd_session_t xdm_t local_login_t } mount_var_run_t:file { getattr open read };

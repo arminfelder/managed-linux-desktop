@@ -5,8 +5,10 @@
 # AD users make their own TPM keys (mld-cert user). The kernel resource manager device must be theirs.
 # Numeric GID: udev cannot resolve AD groups (sssd) when it reads the rule.
 pki_tpm_group() {
-    local gid; gid=$(getent group "${LINUX_GROUP:-LinuxUsers}" | cut -d: -f3)
-    [ -n "$gid" ] || fail "group ${LINUX_GROUP:-LinuxUsers} does not resolve"
+    # IDM_GROUP: the group name as the directory has it (FreeIPA: lower case).
+    local group="${IDM_GROUP:-${LINUX_GROUP:-LinuxUsers}}" gid
+    gid=$(getent group "$group" | cut -d: -f3)
+    [ -n "$gid" ] || fail "group $group does not resolve"
     # 70-: after 60-tpm-udev.rules (package tpm-udev), which sets group tss. The last rule wins.
     rm -f /etc/udev/rules.d/60-mld-tpm.rules
     printf 'KERNEL=="tpmrm0", GROUP="%s", MODE="0660"\n' "$gid" > /etc/udev/rules.d/70-mld-tpm.rules
@@ -49,24 +51,46 @@ pki_wait_certsrv() {
 phase_pki() {
     phase pki
     # A client from before the PKI change gets the packages and tools here (client resume).
-    local v
-    pkg_install tpm2-openssl python3-impacket curl ldap-utils libsasl2-modules-gssapi-mit \
-        certmonger libtpm2-pkcs11-1 libtpm2-pkcs11-tools libnss3-tools opensc
-    command -v tpm2_ptool >/dev/null || fail "tpm2_ptool missing (package libtpm2-pkcs11-tools)"
+    local v vars
+    local CERT_PKGS
+    case "$CLIENT_DISTRO" in
+    ubuntu) CERT_PKGS=(tpm2-openssl curl certmonger libtpm2-pkcs11-1 libtpm2-pkcs11-tools libnss3-tools opensc) ;;
+    fedora) CERT_PKGS=(tpm2-openssl curl certmonger tpm2-pkcs11 tpm2-pkcs11-tools nss-tools opensc) ;;
+    esac
+    # AD only: the template search (LDAP, impacket) and DCOM enrollment.
+    if [ "${IDP:-windows}" = windows ]; then
+        case "$CLIENT_DISTRO" in
+        ubuntu) CERT_PKGS+=(python3-impacket ldap-utils libsasl2-modules-gssapi-mit) ;;
+        fedora) CERT_PKGS+=(python3-impacket openldap-clients cyrus-sasl-gssapi) ;;
+        esac
+    fi
+    pkg_install "${CERT_PKGS[@]}"
+    command -v tpm2_ptool >/dev/null || fail "tpm2_ptool missing (package libtpm2-pkcs11-tools, Fedora tpm2-pkcs11-tools)"
     [ -x /usr/local/sbin/mld-cert ] || install -m 755 "$CFG/cert/cert.sh" /usr/local/sbin/mld-cert
     [ -x /usr/local/sbin/mld-cert-dcom ] || install -m 755 "$CFG/cert/cert-dcom.py" /usr/local/sbin/mld-cert-dcom
     pki_tpm_group
     # TPM-bound user files (keys, token store, PIN): one directory per user, made by the user (mld-cert, mld-autoenroll).
     install -d -m 1733 -o root -g root /var/lib/mld-users
     # config.env has printf %q values (bash 5.3 escapes ","). autoenroll.py does not remove the escapes.
-    for v in DC_FQDN REALM CA_NAME DOMAIN_DN PKI_ENROLL; do printf "%s='%s'\n" "$v" "${!v}"; done > /etc/mld-cert.conf
+    vars="DC_FQDN REALM PKI_ENROLL CLIENT_DISTRO CA_ANCHOR_DIR CA_ANCHOR_PREFIX IDP"
+    [ "${IDP:-windows}" != windows ] || vars+=" CA_NAME DOMAIN_DN"
+    for v in $vars; do printf "%s='%s'\n" "$v" "${!v:-}"; done > /etc/mld-cert.conf
     chmod 644 /etc/mld-cert.conf
-    mld-cert ca
-    pki_wait_certsrv
+    # IDP=freeipa: ipa-client-install puts the IPA CA into the system store, mld-policy into the Chrome policy.
+    if [ "${IDP:-windows}" = windows ]; then
+        mld-cert ca
+        pki_wait_certsrv
+    fi
     # Autoenrollment as on Windows: the templates come from AD (published, Autoenroll permission),
     # certmonger keeps the certificates, the keys are in the TPM token, the timer repeats every 8 h.
     pki_machine_pin
+    # Label the store before the token is made: new files then get cert_t from the directory. Without this, the
+    # running certmonger touched the new etc_t database before the restorecon below (AVC write, seen 2026-11-18).
+    install -d -m 700 /etc/tpm2_pkcs11
+    if [ "$CLIENT_DISTRO" = fedora ]; then restorecon -R /etc/tpm2_pkcs11 /etc/mld/pki; fi
     mld-autoenroll setup machine
+    # fcontexts.list gives the token store and the NSS database type cert_t: certmonger_t writes there.
+    if [ "$CLIENT_DISTRO" = fedora ]; then restorecon -R /etc/tpm2_pkcs11 /etc/mld/pki; fi
     mld-autoenroll machine
     systemctl enable --now mld-autoenroll.timer
     # Users: session certmonger + autoenrollment at login (systemd user units, all users; AD users only by UID).

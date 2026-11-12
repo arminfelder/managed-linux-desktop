@@ -1,6 +1,6 @@
 # Management
 
-Group Policy, automatic updates, the boot and login screen, and the VPN client.
+Group Policy, automatic updates, the boot and login screen, and the VPN client. Fedora differences are in [Fedora differences](#fedora-differences).
 
 These procedures use ASD-STE100 Simplified Technical English. The prerequisites and the build procedure are in [README.md](../README.md).
 
@@ -65,6 +65,38 @@ NOTE: The unattended-upgrades setting `Automatic-Reboot` stays off. Its user che
 NOTE: Unused kernels are removed. The kernel hook then removes their UKI and boot entry.
 
 **CAUTION:** A shim update that changes the SBAT level also changes PCR 7. After the reboot, the TPM2 unlock fails and the client waits for the passphrase. Type the passphrase, then seal again (see the known limits in [README.md](../README.md#known-limits)).
+
+## Fedora differences
+
+| | Ubuntu | Fedora |
+|---|---|---|
+| Automatic updates | `unattended-upgrades`, `52mld-unattended-upgrades` | `dnf5-plugin-automatic`: `apply_updates = yes`, `reboot = never` (`client/mld/update/automatic.conf` as `/etc/dnf/automatic.conf`); timer `dnf5-automatic.timer` at 06:00 |
+| Reboot needed | `/run/reboot-required` | `dnf needs-restarting -r` (exit code 1) |
+| Busy units for `mld-reboot` | `mld-firstboot`, `apt-daily-upgrade` | `mld-firstboot`, `dnf5-automatic` |
+| `samba-gpupdate` LDAP backend | `samba-dsdb-modules` | `samba-ldb-ldap-modules` |
+| snx-rs | deb822 source | `snx-rs.repo` and `mld-snx-rs.asc` in `/etc/pki/rpm-gpg` |
+| PKCS#11 module for the VPN profile | `/usr/lib/x86_64-linux-gnu/pkcs11/libtpm2_pkcs11.so` | `/usr/lib64/pkcs11/libtpm2_pkcs11.so` |
+| Plymouth default | `update-alternatives` | `plymouth-set-default-theme` (package `plymouth-scripts`) |
+
+NOTE: `dnf5-automatic` does not wait for `mld-firstboot`. A drop-in on `dnf5-automatic.service` stops the update while `mld-firstboot.service` is in the state `activating`.
+
+NOTE: The `dnf5-automatic.timer` starts at 06:00, after the `mld-reboot.timer` window (03:00 to 04:00). A reboot that an update requires happens in the next night window.
+
+NOTE: A repository that sets `repo_gpgcheck=1` (snx-rs) keeps this setting. dnf then also checks the repository metadata.
+
+NOTE: `mld-reboot` reads the `ActiveState` of `mld-firstboot.service`. It stops only for `activating` or `deactivating`. An earlier version did not restart the client after the first boot until the next manual reboot. An older Ubuntu client gets the correction with `client resume`.
+
+NOTE: dnf5-automatic reads its defaults from `/usr/share/dnf5/dnf5-plugins/automatic.conf`, then the changes in `/etc/dnf/automatic.conf`. The location `/etc/dnf/dnf5-plugins/automatic.conf` is deprecated. `mld-firstboot` deletes an old copy of the lab file there.
+
+## Update a client after a repository update
+
+1. Update the repository, for example with `git pull`.
+2. Run `./build.sh client resume`.
+3. Run `./build.sh client wait`.
+4. Run `./build.sh client verify`.
+5. Make sure that all lines show `ok`.
+
+NOTE: The client scripts of this version read `/etc/mld/distro.sh`. A client from an earlier version gets this file only from `client resume`.
 
 ## Change the boot and login screen
 

@@ -37,15 +37,14 @@ fail() {
 }
 trap 'fail "line $LINENO: $BASH_COMMAND"' ERR
 
-# Installs the packages that are not installed yet, in one apt-get call.
-pkg_install() {
-    local p missing=()
-    for p in "$@"; do dpkg -s "$p" >/dev/null 2>&1 || missing+=("$p"); done
-    if [ "${#missing[@]}" -gt 0 ]; then DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing[@]}"; fi
-}
+# shellcheck source=/dev/null
+. "$CFG/distro.sh"
 
 # One file per topic: client/mld/<topic>/phase.sh, in /etc/mld/<topic>/ on the client.
-for topic in boot ad cert home apps desktop gpo vpn update brand; do
+for topic in boot ad ipa cert home apps desktop gpo policy vpn update brand selinux; do
+    # Ubuntu has no selinux topic. IDP=freeipa has no gpo topic, IDP=windows no ipa and no policy topic
+    # (install.list column 4).
+    case "$topic" in selinux|gpo|ipa|policy) [ -f "$CFG/$topic/phase.sh" ] || continue ;; esac
     # shellcheck source=/dev/null
     . "$CFG/$topic/phase.sh"
 done
@@ -54,8 +53,12 @@ phase_cleanup() {
     phase cleanup
     # The LUKS passphrase stays as a keyslot. The copy in /etc/mld is not necessary after enrollment.
     # A second run (client resume) finds the files shredded already.
+    # Anaconda keeps copies of the kickstart (LUKS passphrase) in /root on Fedora.
     local f
-    for f in "$CFG/join-pass" "$CFG/odj.txt" "$CFG/luks-pass" "$CFG/admin-hash"; do [ ! -e "$f" ] || shred -u "$f"; done
+    for f in "$CFG/join-pass" "$CFG/odj.txt" "$CFG/ipa-otp.txt" "$CFG/luks-pass" "$CFG/admin-hash" \
+             /root/original-ks.cfg /root/anaconda-ks.cfg; do
+        [ ! -e "$f" ] || shred -u "$f"
+    done
     # Older versions had all files flat in /etc/mld. A flat file with the name of a topic file is an old copy.
     for f in "$CFG"/*/*; do
         if [ -f "$f" ] && [ -f "$CFG/${f##*/}" ]; then rm -f "$CFG/${f##*/}"; fi
@@ -65,6 +68,7 @@ phase_cleanup() {
 main() {
     rm -f "$STATE/FAILED"
     phase_admin_pw
+    if [ "$CLIENT_DISTRO" = fedora ]; then phase_selinux; fi
     if [ "${CLIENT_TARGET:-vm}" = hw ]; then phase_luks_check; fi
     # The lab VMs get the LUKS passphrase on CIDATA. Real hardware has none: mld-firstboot secure asks for it.
     if [ -s "$CFG/luks-pass" ]; then
@@ -73,8 +77,12 @@ main() {
     fi
     phase_dns
     phase_updates
-    # Clients from before the offline join were joined with realm join: realm list shows them.
-    [ -f "$STATE/join.done" ] || realm list --name-only | grep -qx "$DOMAIN" || phase_join
+    if [ "${IDP:-windows}" = freeipa ]; then
+        [ -f "$STATE/join.done" ] || phase_join_ipa
+    else
+        # Clients from before the offline join were joined with realm join: realm list shows them.
+        [ -f "$STATE/join.done" ] || realm list --name-only | grep -qx "$DOMAIN" || phase_join
+    fi
     phase_sssd
     [ "${PKI_ENROLL:-none}" = none ] || phase_pki
     phase_pam
@@ -82,8 +90,9 @@ main() {
     phase_browsers
     phase_desktop
     phase_brand
-    phase_gpo
+    if [ "${IDP:-windows}" = windows ]; then phase_gpo; else phase_policy; fi
     if [ "${SNX_RS:-1}" = 1 ]; then phase_snx; else phase_snx_remove; fi
+    if [ "$CLIENT_DISTRO" = fedora ]; then phase_selinux_restore; fi
     phase_cleanup
     # The lab VMs: build.sh does these steps from the host (client mok-enroll).
     if [ "${CLIENT_TARGET:-vm}" = hw ]; then secure_motd; fi
