@@ -1,6 +1,6 @@
 # Managed Linux desktop lab
 
-Integration of an Ubuntu 26.04 desktop into an Active Directory environment, as a reproducible libvirt lab. `build.sh` builds a Windows Server 2025 DC (AD DS, DNS, AD CS, file share `Homes$`) and the client, then tests the integration end to end. The same code makes an install image for real hardware.
+Integration of an Ubuntu 26.04 or Fedora 45 desktop into an Active Directory environment, as a reproducible libvirt lab. `build.sh` builds a Windows Server 2025 DC (AD DS, DNS, AD CS, file share `Homes$`) and the client, then tests the integration end to end. `CLIENT_DISTRO` in `lab.env` selects the client OS (`ubuntu`, the default, or `fedora`). The same code makes an install image for real hardware. `IDP=freeipa` replaces the Windows DC with a FreeIPA server on Fedora 45: no Microsoft software, no Microsoft protocols ([docs/freeipa.md](docs/freeipa.md)).
 
 Integration points on the client:
 
@@ -30,7 +30,8 @@ Then open the client in virt-manager and log in as `alice` with `LAB_USER_PW` fr
 | VM | OS | Firmware | Address | Role |
 |---|---|---|---|---|
 | `mld-dc` | Windows Server 2025 evaluation | SeaBIOS | 10.110.0.2 | AD DS forest `mld.contoso.com`, DNS, NTP, enterprise CA, share `Homes$` |
-| `mld-client` | Ubuntu 26.04 LTS desktop (GNOME or KDE Plasma) | OVMF, Secure Boot with Microsoft keys, swtpm TPM 2.0 | 10.110.0.20 (DHCP by MAC) | Device under test |
+| `mld-dc` with `IDP=freeipa` (name from `DC_VM`) | Fedora 45, FreeIPA 4.13 | OVMF, Secure Boot | `DC_IP` | FreeIPA (directory, Kerberos, DNS, CA), NFSv4 homes `sec=krb5p`, policy endpoint `/mld-policy` |
+| `mld-client` | Ubuntu 26.04 LTS or Fedora 45 desktop (GNOME or KDE Plasma), selected by `CLIENT_DISTRO` | OVMF, Secure Boot with Microsoft keys, swtpm TPM 2.0 | 10.110.0.20 (DHCP by MAC) | Device under test |
 
 ```mermaid
 flowchart LR
@@ -40,7 +41,7 @@ flowchart LR
     end
     subgraph net["libvirt network mld-lab, 10.110.0.0/24, NAT via 10.110.0.1"]
         dc["mld-dc 10.110.0.2<br/>AD DS, DNS, CA, Homes$"]
-        client["mld-client 10.110.0.20<br/>Ubuntu 26.04"]
+        client["mld-client 10.110.0.20<br/>Ubuntu 26.04 or Fedora 45"]
     end
     build -- "QEMU guest agent" --> dc
     build -- "QEMU guest agent" --> client
@@ -57,8 +58,9 @@ The DC uses BIOS on purpose. It is not under test, and Windows Setup from a UEFI
 | Boot and disk | Secure Boot (shim → grub → kernel, or a signed UKI per kernel). Full disk encryption: ESP and `/boot` plain, the rest LUKS2 → LVM → root. Keyslots: passphrase, recovery key, optional TPM2 (PCR 7) and FIDO2. | [boot-and-disk.md](docs/boot-and-disk.md) |
 | Identity and files | AD join without a join password: offline domain join with a `djoin.exe` blob, as for Windows clients (Samba `net offlinejoin`). AD login through sssd, only for `LinuxUsers`. Home directory `\\dc1\Homes$\<user>` over CIFS with `sec=krb5` (`CIFS_HOME=1`), or local. | [identity-and-pki.md](docs/identity-and-pki.md) |
 | Certificates | Machine and user certificates from the AD CA with TPM keys: autoenrollment like Windows (certmonger), or manual (certsrv, DCOM). The AD CA certificates are trusted by the system, Chrome and Firefox, with renewal. | [identity-and-pki.md](docs/identity-and-pki.md) |
-| Desktop and apps | GNOME or KDE Plasma (`CLIENT_DE`). Firefox (Mozilla deb) and Chrome without the default-browser prompt and telemetry. Microsoft 365 apps as Chrome app windows: menu entries, pins and desktop icons from the first login. | [desktop-and-apps.md](docs/desktop-and-apps.md) |
+| Desktop and apps | GNOME or KDE Plasma (`CLIENT_DE`). Firefox (Mozilla deb on Ubuntu, Fedora package on Fedora) and Chrome without the default-browser prompt and telemetry. Microsoft 365 apps as Chrome app windows: menu entries, pins and desktop icons from the first login. | [desktop-and-apps.md](docs/desktop-and-apps.md) |
 | Management | Group Policy through `samba-gpupdate` (GPO `MLD Linux Clients`, ADMX in the central store). Daily automatic updates, reboot at night when nobody is logged in. Boot and login screen with a logo. snx-rs Check Point VPN client, with the machine certificate as second factor. | [management.md](docs/management.md) |
+| FreeIPA | `IDP=freeipa`: join with a one-time password, sssd `ipa`, HBAC, NFSv4 home `sec=krb5p` through autofs, certificates from the IPA CA in the TPM tokens, browser policy pulled from the server (`mld-policy`). | [freeipa.md](docs/freeipa.md) |
 | Real hardware | `./build.sh client hw-iso`: one install image for a USB stick. No passwords on the stick; the installer asks for them. Offline join blobs per device, signing key made on the device, `mld-firstboot secure` for the recovery key, MOK and TPM2. | [real-hardware.md](docs/real-hardware.md) |
 
 Design decisions, the current status, open items and a comparison with the Red Hat and Canonical AD documentation are in [docs/overview.md](docs/overview.md). The limits that are known today are in [Known limits](#known-limits).
@@ -69,15 +71,15 @@ Design decisions, the current status, open items and a comparison with the Red H
 flowchart TD
     cfg["build.sh config<br/>lab.env"] --> fetch["fetch, pin, net, check"]
     fetch --> dciso["dc iso<br/>PROVISION CD"] --> dcvm["dc vm, dc wait<br/>phases 1-9 on the DC"] --> dcv["dc verify, dc snapshot"]
-    dcv --> ciso["client iso<br/>remastered ISO + CIDATA"] --> cvm["client vm<br/>autoinstall, passphrase"] --> cwait["client wait<br/>mld-firstboot phases"] --> cv["client verify, client snapshot"]
+    dcv --> ciso["client iso<br/>remastered ISO + CIDATA"] --> cvm["client vm<br/>autoinstall or kickstart, passphrase"] --> cwait["client wait<br/>mld-firstboot phases"] --> cv["client verify, client snapshot"]
     cv -. "change in lab.env or client/mld" .-> resume["client resume"] --> cwait
 ```
 
 `build.sh` drives everything. The guests provision themselves. The host talks to them only through the QEMU guest agent (`guest-exec.sh dc|client`).
 
-- **DC.** `dc iso` renders `dc/autounattend.xml.tmpl` and `config.ps1` from `lab.env` into the `PROVISION` CD. `dc/provision/run.ps1` then runs the phases across reboots: 1 AD DS, 2 DNS, time, OUs, users and the join account, 3 share `Homes$`, 4 WinRM and RDP, 5 domain facts for the host, 6 AD CS, 7 certificate templates, 8 Linux GPO, 9 ADMX central store. The state is in `C:\build\phase`. The result is `C:\build\DONE` or `C:\build\FAILED`. `dc resume` runs the phases again after a change.
-- **Client.** `client iso` remasters the Ubuntu live-server ISO so it boots with `autoinstall ds=nocloud`, and renders the `CIDATA` seed CD. The autoinstall sets up LVM on LUKS and the packages, then copies `client/mld/` to `/etc/mld` (list: `client/mld/install.list`). The VM stays off after the install. `client start` boots it with the serial console attached and types the passphrase at the prompt (`lib/console.py`). On first boot, `mld-firstboot.service` runs one phase file per topic in `client/mld/` (`boot ad cert home apps desktop gpo vpn update brand`). The result is `/var/lib/mld/DONE` or `/var/lib/mld/FAILED`. `client resume` copies the changed files and settings to the client and runs the first boot again.
-- **Media.** The ISO files are in `data/media`, the VM disks in `data/pool`. `checksums.sha256` pins the Ubuntu ISO, using Canonical's published `SHA256SUMS`. Microsoft and virtio-win publish no ISO checksum, so `./build.sh pin` records their sums at first download (trust on first use).
+- **DC.** `dc iso` renders `dc/autounattend.xml.tmpl` and `config.ps1` from `lab.env` into the `PROVISION` CD. `dc/provision/run.ps1` then runs the phases across reboots: 1 AD DS, 2 DNS, time, OUs, users and the join account, 3 share `Homes$`, 4 WinRM and RDP, 5 domain facts for the host, 6 AD CS, 7 certificate templates, 8 Linux GPO, 9 ADMX central store. The state is in `C:\build\phase`. The result is `C:\build\DONE` or `C:\build\FAILED`. `dc resume` runs the phases again after a change. With `IDP=freeipa`, `dc vm` installs Fedora 45 from a kickstart (`ipa/ks.cfg.tmpl`), and `ipa/provision/run.sh` runs 5 phases: 1 `ipa-server-install`, 2 users, group and HBAC, 3 NFS homes and automount, 4 user certificate profile, 5 policy endpoint. The state is in `/var/lib/mld-ipa`.
+- **Client.** `client iso` remasters the ISO of the selected distro and renders the `CIDATA` seed CD. Ubuntu: the live-server ISO boots with `autoinstall ds=nocloud`. Fedora: the Everything netinstall ISO boots with `inst.ks=hd:LABEL=CIDATA:/ks.cfg`, and `client/ks.cfg.tmpl` is the kickstart. The installer sets up LVM on LUKS and the packages, then copies `client/mld/` to `/etc/mld` (list: `client/mld/install.list`). The VM stays off after the install. `client start` boots it with the serial console attached and types the passphrase at the prompt (`lib/console.py`). On first boot, `mld-firstboot.service` runs one phase file per topic in `client/mld/` (`boot ad cert home apps desktop gpo vpn update brand`). The result is `/var/lib/mld/DONE` or `/var/lib/mld/FAILED`. `client resume` copies the changed files and settings to the client and runs the first boot again.
+- **Media.** The ISO files are in `data/media`, the VM disks in `data/pool`. `checksums.sha256` pins the Ubuntu ISO, using Canonical's published `SHA256SUMS`. For Fedora, `fetch` downloads the signed `CHECKSUM` file. It checks the signature when `fedora.gpg` (a binary keyring for `gpgv`) is in `data/media`. Without the keyring, `./build.sh pin` records the sum at first download (trust on first use). Microsoft and virtio-win publish no ISO checksum, so `./build.sh pin` records their sums at first download (trust on first use).
 
 ## Repository layout
 
@@ -86,8 +88,10 @@ flowchart TD
 | `build.sh`, `lib/` | The build script and its parts: settings, host checks, DC, client, tests |
 | `env.example` | All settings with defaults and help. `build.sh config` writes `lab.env` from it |
 | `dc/` | Windows unattended setup and the DC phases (`dc/provision/0N-*.ps1`) |
-| `client/user-data.tmpl` | Ubuntu autoinstall |
+| `ipa/` | FreeIPA server (`IDP=freeipa`): kickstart, phases (`ipa/provision/0N-*.sh`), browser policy files (`ipa/policy/`) |
+| `client/user-data.tmpl`, `client/ks.cfg.tmpl` | Ubuntu autoinstall, Fedora kickstart |
 | `client/mld/<topic>/` | Everything that goes to `/etc/mld` on the client, one folder per topic with its `phase.sh` |
+| `tests/` | Host render tests: `tests/render-test.sh all` (see [tests/README.md](tests/README.md)) |
 | `docs/` | Topic procedures and [overview.md](docs/overview.md): design, status, open items |
 
 ## Procedures
@@ -98,12 +102,25 @@ These procedures use ASD-STE100 Simplified Technical English. The topic procedur
 
 - Host tools: `virsh`, `virt-install`, `virt-xml`, `genisoimage`, `xorriso`, `openssl`, `python3`, `curl`, `swtpm`, `magick` (ImageMagick), OVMF (`/usr/share/OVMF/OVMF_CODE_4M.secboot.fd`).
 - Optional host tool: `sshpass` for the login test.
+- Host tools for `CLIENT_DISTRO=fedora`: `mtools` (`mcopy`, `mtype`) to patch the boot menu in the EFI image of the ISO. Optional: `pykickstart` (`ksvalidator`) to check the kickstart syntax in the render test.
 - Your user account is a member of the `libvirt` group.
 - The VM disks and ISO files are in `data/` in the repo (`DATA_DIR` in `lab.env`). `.gitignore` excludes `data/`.
 - The `libvirt-qemu` user must be able to enter each parent directory of `data/` and `.stage/`.
   If `./build.sh check` shows `BAD libvirt-qemu cannot enter`, run the `setfacl` command that the check shows.
 
 NOTE: `/run/media/$USER` is on tmpfs. The ACL on this directory is lost when the host reboots. Then run the `setfacl` command again.
+
+### Select the client OS
+
+1. In `lab.env`, set `CLIENT_DISTRO=ubuntu` or `CLIENT_DISTRO=fedora`.
+2. If you use Fedora, make sure that `FEDORA_ISO` and `FEDORA_URL` in `lab.env` name the Fedora 45 Everything netinstall ISO.
+3. Do the procedure [Build the lab](#build-the-lab).
+
+NOTE: One client VM has one distro. To change the distro of a built client, remove the VM and build it again. If the distro in `lab.env` is not the distro of the client, `client resume` stops with "build the client again".
+
+NOTE: For a second client of the other distro, use a second work tree with its own `lab.env`.
+
+NOTE: Fedora 45 gets no major upgrade from this lab. Only the patch updates inside the release are automatic. Fedora 45 reaches end of life about one month after Fedora 47 is released. To use a newer release, change the ISO settings and build the client again.
 
 ### Build the lab
 
@@ -153,7 +170,7 @@ NOTE: Do not use `virsh undefine --remove-all-storage`. It also deletes the atta
 ### Log in as an AD user
 
 1. Open the client console in virt-manager.
-2. On the GDM login screen (GNOME), click "Not listed?". The SDDM login screen (KDE) asks for the user name immediately.
+2. On the GDM login screen (GNOME), click "Not listed?". The SDDM login screen (Ubuntu KDE) asks for the user name immediately. On Fedora KDE, the login screen is Plasma Login Manager: see [desktop-and-apps.md](docs/desktop-and-apps.md#use-kde-plasma-instead-of-gnome).
 3. Type the AD user name, for example `alice`, and the `LAB_USER_PW` password.
 4. Open a terminal and run `findmnt /home/alice`.
 5. If `CIFS_HOME=1`, make sure that the file system type is `cifs`.
@@ -171,6 +188,16 @@ NOTE: Do not use `virsh undefine --remove-all-storage`. It also deletes the atta
 
 NOTE: `client resume` does not change the desktop (`CLIENT_DE`) or the disk layout. For these settings, build the client again.
 
+### Update a built client after a repository update
+
+1. Update the repository, for example with `git pull`.
+2. Run `./build.sh client resume`.
+3. Run `./build.sh client wait`.
+4. Run `./build.sh client verify`.
+5. Make sure that all lines show `ok`.
+
+NOTE: The client scripts of this version read `/etc/mld/distro.sh`. A client from an earlier version gets this file only from `client resume`.
+
 NOTE: Each `build.sh` copy reads the `lab.env` file in its own directory. For a second client VM, use a second work tree with its own `lab.env` (other `CLIENT_VM`, `CLIENT_HOSTNAME`, `CLIENT_MAC`, `CLIENT_IP`).
 
 ### Set the local admin password again
@@ -178,7 +205,9 @@ NOTE: Each `build.sh` copy reads the `lab.env` file in its own directory. For a 
 1. Run `./build.sh client set-admin-password`.
 2. Make sure that the script shows `labadmin P` (password set).
 
-NOTE: cloud-init deletes the password of the installer user at the first boot. `mld-firstboot` sets it again from `CLIENT_ADMIN_PW`, and `client verify` shows `ok local admin has a password`.
+NOTE: This procedure applies to Ubuntu. On Ubuntu, cloud-init deletes the password of the installer user at the first boot. `mld-firstboot` sets it again from `CLIENT_ADMIN_PW`, and `client verify` shows `ok local admin has a password`.
+
+NOTE: Fedora has no cloud-init. On Fedora, `client verify` only checks the password.
 
 ### Start the client after a shutdown
 
@@ -211,6 +240,13 @@ NOTE: cloud-init deletes the password of the installer user at the first boot. `
 - Windows Server 2025 DCs send a KPASSWD reply that MIT Kerberos rejects ("Message stream modified", [realmd/adcli#40](https://gitlab.freedesktop.org/realmd/adcli/-/issues/40)). Because of this, the join uses Samba offline domain join (no kpasswd), not adcli. A password change from Linux (`passwd`, kpasswd) and the sssd machine password renewal also fail against this DC.
 - Google Chrome 157 does no Kerberos (Negotiate) login: Chrome writes "Unable to create AuthHandler. Status: net::ERR_UNSUPPORTED_AUTH_SCHEME Challenge: Negotiate". The result is the same with the GPO allowlist, with the allowlist as a command-line flag, with `--no-sandbox`, with `AuthSchemes` set to `negotiate`, and with an explicit `--gssapi-library-name`. The cause is not known. Firefox does Kerberos with the same ticket. `client verify` shows the Chrome result as `open`, not as `FAIL`.
 - A shim update that changes the SBAT level changes PCR 7. After the automatic reboot at night, the client then waits for the passphrase.
+- Fedora (`CLIENT_DISTRO=fedora`): SELinux stays enforcing. `client verify` fails on an AVC denial that is not on the ignore list (`client/mld/selinux/avc-ignore.list`).
+- Fedora KDE: the login screen is Plasma Login Manager (`plasmalogin.service`). Its package has no setting for the user list that corresponds to SDDM `MaximumUid`. AD login on this screen is a manual check (`client verify` shows a warning, not `ok`). If the screen cannot take a typed user name, the fallback is SDDM on Fedora KDE.
+- Fedora: the kickstart is not checked offline unless `ksvalidator` (package `pykickstart`) is on the host. Without it, the render test shows `skip ks_validate`, and the first VM build is the first syntax check.
+- Fedora: the live builds of the done criteria in [docs/superpowers/specs/2026-11-12-fedora-client-design.md](docs/superpowers/specs/2026-11-12-fedora-client-design.md) are not run yet. The render tests and the package facts from the Fedora 45 repositories are the only checks so far.
+- Fedora 45 has no major-version upgrade in this lab. It reaches end of life about one month after Fedora 47 is released.
+- `IDP=freeipa`: the limits are in [docs/freeipa.md](docs/freeipa.md#known-limits).
+- Fedora: the GPO `MLD Linux Clients` adds the Firefox security device `/usr/lib/x86_64-linux-gnu/pkcs11/p11-kit-trust.so`. This path is the Ubuntu path. Fedora has the module in `/usr/lib64/pkcs11/`. The Fedora Firefox package uses the system certificate store, so it trusts the AD CA from `update-ca-trust`. The live build must confirm this.
 
 ## License
 

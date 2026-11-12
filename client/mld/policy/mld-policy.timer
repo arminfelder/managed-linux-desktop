@@ -1,0 +1,10 @@
+[Unit]
+Description=MLD browser policy from the FreeIPA server, every 90 min
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=90min
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

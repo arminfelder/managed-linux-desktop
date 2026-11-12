@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run a snippet inside a lab VM through the QEMU guest agent.
 #
-#   ./guest-exec.sh dc 'Get-Date'                 PowerShell on the DC, as SYSTEM
+#   ./guest-exec.sh dc 'Get-Date'                 PowerShell on the DC, as SYSTEM (IDP=freeipa: bash, as root)
 #   ./guest-exec.sh client 'uname -a'             bash on the client, as root
 #   ./guest-exec.sh client < script.sh
 #   GUEST_EXEC_TIMEOUT=30 ./guest-exec.sh dc 'Get-Date'
@@ -31,9 +31,12 @@ case "$role" in
 esac
 
 # JSON is built in Python, so no quoting passes between bash, JSON and the guest shell.
-req=$(python3 - "$role" "$script" <<'PY'
+req=$(python3 - "$role" "$script" "${CLIENT_DISTRO:-ubuntu}" "${IDP:-windows}" <<'PY'
 import base64, json, sys
-role, script = sys.argv[1], sys.argv[2]
+role, script, distro, idp = sys.argv[1:5]
+# The FreeIPA server is Fedora: bash through the SELinux wrapper, as on a Fedora client.
+if role == "dc" and idp == "freeipa":
+    role, distro = "client", "fedora"
 if role == "dc":
     # Progress records come out as CLIXML on stderr and hide the real output.
     script = "$ProgressPreference='SilentlyContinue'\n" + script
@@ -41,7 +44,8 @@ if role == "dc":
     args = {"path": "powershell.exe",
             "arg": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", b64]}
 else:
-    args = {"path": "/bin/bash", "arg": ["-s"],
+    # Fedora: qemu-ga runs in virt_qemu_ga_t. Only this wrapper (client/mld/selinux/qemu-ga-run.sh) runs unconfined.
+    args = {"path": "/usr/libexec/mld/qemu-ga-run" if distro == "fedora" else "/bin/bash", "arg": ["-s"],
             "input-data": base64.b64encode(script.encode()).decode()}
 args["capture-output"] = True
 print(json.dumps({"execute": "guest-exec", "arguments": args}))

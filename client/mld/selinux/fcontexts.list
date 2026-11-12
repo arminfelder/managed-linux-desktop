@@ -1,0 +1,10 @@
+# regex type
+# certmonger runs the submit helper in its own confined domain. The helper needs the TPM and the network (mld-cm-submit calls mld-cert submit).
+/usr/local/libexec/mld-cm-submit certmonger_unconfined_exec_t
+# The post-save command removes replaced certificates from the token (python, openssl, sqlite).
+/usr/local/libexec/mld-cert-prune certmonger_unconfined_exec_t
+# The guest agent changes to an unconfined domain only for a file of this type (virt_qemu_ga_run_unconfined on).
+/usr/libexec/mld/qemu-ga-run virt_qemu_ga_unconfined_exec_t
+# The system certmonger (certmonger_t) writes the machine token store and the machine NSS database. It may write cert_t.
+/etc/tpm2_pkcs11(/.*)? cert_t
+/etc/mld/pki(/.*)? cert_t

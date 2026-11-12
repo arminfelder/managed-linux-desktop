@@ -1,6 +1,6 @@
 # Desktop and apps
 
-The desktop (GNOME or KDE Plasma) and the Microsoft 365 apps.
+The desktop (GNOME or KDE Plasma) and the Microsoft 365 apps. Fedora differences are in [Fedora differences](#fedora-differences).
 
 These procedures use ASD-STE100 Simplified Technical English. The prerequisites and the build procedure are in [README.md](../README.md).
 
@@ -24,9 +24,32 @@ flowchart LR
 
 NOTE: `./build.sh client resume` does not change the desktop. If `CLIENT_DE` does not agree with the desktop on the client, the first boot stops with "build the client again".
 
-NOTE: The KDE login screen uses the SDDM theme Breeze and asks for the user name (no user list). The package `kde-plasma-desktop` also installs `budgie-sddm-theme`, which shows a white login screen under Plasma. The first boot removes it.
+NOTE: On Ubuntu, the KDE login screen uses the SDDM theme Breeze and asks for the user name (no user list). The package `kde-plasma-desktop` also installs `budgie-sddm-theme`. This theme shows a white login screen under Plasma, so the first boot removes it.
 
 NOTE: Plasma runs the pin script one time for each user, at the next login. If a user changes the task manager after that, the change stays.
+
+## Fedora differences
+
+| | Ubuntu | Fedora |
+|---|---|---|
+| Desktop package group | `ubuntu-desktop-minimal`, `kde-plasma-desktop` | `workstation-product-environment`, `kde-desktop-environment` |
+| GNOME | Dock and desktop icons (`mld-desktop` user unit) | Stock GNOME: no desktop icons, no `mld-desktop`. Pins go to the dash (dconf default `favorite-apps`). The Microsoft 365 launchers are in the app grid. |
+| KDE login screen | SDDM (Breeze theme, no user list) | Plasma Login Manager (`plasmalogin.service`, `/etc/plasmalogin.conf.d/90-mld.conf` for the background) |
+| Firefox | Mozilla deb (repository pin) | Fedora package |
+| Chrome | Google deb repository | Repository `google-chrome` of `fedora-workstation-repositories`, enabled by the first boot. Key: `google-linux-signing.asc` (imported with `rpm --import`) |
+| Firefox pin | `firefox.desktop` | `org.mozilla.firefox.desktop` (`@firefox` in `pins.list`) |
+| dconf profile `user` | Written by the first boot | Stock file of the `dconf` package. The first boot does not change it. |
+
+NOTE: The Plasma Login Manager package has no setting for the user list that corresponds to SDDM `MaximumUid`. AD login on this screen is a manual check: `client verify` shows a warning, not `ok`.
+
+To test the AD login on Fedora KDE:
+
+1. On the login screen, log in as an AD user.
+2. If the login does not work, use the fallback: SDDM on Fedora KDE (packages `sddm`, `sddm-breeze`, `kde-settings-sddm`).
+
+NOTE: The SDDM fallback is not in the code yet. It also needs `plasmalogin.service` disabled.
+
+NOTE: For Fedora KDE, step 4 of "Use KDE Plasma instead of GNOME" shows `ok desktop kde (display manager plasmalogin.service)`.
 
 ## Use the Microsoft 365 apps
 

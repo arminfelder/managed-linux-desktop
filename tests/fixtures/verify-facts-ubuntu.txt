@@ -1,0 +1,57 @@
+sb=SecureBoot enabled
+luks_version=2
+tokens=systemd-recovery systemd-tpm2 
+keyslots=3
+root_on_crypt=yes
+plain_fs=/boot /boot/efi 
+crypttab=tpm2-device=auto,discard
+realm=
+testjoin=Join is OK
+keytab=2
+machine_etype=aes256-cts-hmac-sha1-96, aes256-cts-hmac-sha1-96
+probe_id=uid=200001(lab-user@lab.test) gid=200001(linux-users@lab.test) groups=200001(linux-users@lab.test)
+failed_units=
+admin_pw=labadmin=P
+recovery=present
+link_dns=
+snx_active=active
+snx_menu=present
+snx_dropin=Environment=TPM2_PKCS11_STORE=/etc/tpm2_pkcs11
+machine_p11_certs=1
+machine_p11_id=a1b2c3
+machine_p11_sign=256
+o365_launchers=7
+o365_icons=7
+chrome_policy=DefaultBrowserSettingEnabled MetricsReportingEnabled
+o365_policy=absent
+de_installed=gnome
+dock_default=['firefox.desktop', 'mld-o365-outlook.desktop', 'google-chrome.desktop']
+plymouth_theme=/usr/share/plymouth/themes/mld/mld.plymouth
+plymouth_initrd=3
+ca_ad=1
+ca_chrome=1
+p11kit_trust=present
+ca_legacy=absent
+certsrv_tls=401
+gpo_chrome="AuthServerAllowlist": "*.lab.test"
+gpo_firefox=['.lab.test'] ['p11-kit-trust']
+gpo_timer=enabled
+uki_booted=yes
+uki_legacy=
+lab_in_db=1
+uu_pkg=installed 2.12ubuntu1
+uu_periodic=1 1 
+uu_timers=enabled enabled enabled 
+uu_origins=o=Ubuntu,a=resolute o=Ubuntu,a=resolute-security o=Ubuntu,a=resolute-updates site=packages.mozilla.org site=dl.google.com site=ancwrd1.github.io
+snx_pkg=installed 5.0.2
+firefox_pkg=installed 150.0~mozilla1
+firefox_origin=https://packages.mozilla.org/apt
+chrome_pkg=installed 160.0.7000.1-1
+dm_unit=gdm.service/active
+desktop_unit=enabled
+boot_entry=MLD UKI 7.0.0-43-generic
+running=7.0.0-43-generic
+kernels=7.0.0-43-generic
+uki_files=7.0.0-43-generic
+uki_entries=7.0.0-43-generic
+boot_first=MLD UKI 7.0.0-43-generic

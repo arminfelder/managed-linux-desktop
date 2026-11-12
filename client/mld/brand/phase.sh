@@ -6,17 +6,25 @@ BRAND_DIR=/usr/share/mld/brand
 PLY_DIR=/usr/share/plymouth/themes/mld
 
 brand_plymouth() {
-    local bg=${BRAND_BG:-#1e3a5f} new old img="/boot/initrd.img-$(uname -r)"
+    local bg=${BRAND_BG:-#1e3a5f} new old img=$(initrd_path "$(uname -r)")
     pkg_install plymouth plymouth-theme-spinner
+    if [ "$CLIENT_DISTRO" = fedora ]; then pkg_install plymouth-scripts; fi
     mkdir -p "$PLY_DIR"
     # two-step loads its images from ImageDir: the spinner frames, the passphrase box, and watermark.png (the logo).
     cp /usr/share/plymouth/themes/spinner/*.png "$PLY_DIR/"
     install -m 644 "$BRAND_DIR/logo.png" "$PLY_DIR/watermark.png"
     sed "s/BRAND_BG_HEX/${bg#\#}/g" "$CFG/brand/mld.plymouth" > "$PLY_DIR/mld.plymouth"
-    update-alternatives --install /usr/share/plymouth/themes/default.plymouth default.plymouth "$PLY_DIR/mld.plymouth" 300
-    update-alternatives --set default.plymouth "$PLY_DIR/mld.plymouth"
     mkdir -p /etc/plymouth
     printf '[Daemon]\nTheme=mld\n' > /etc/plymouth/plymouthd.conf
+    case "$CLIENT_DISTRO" in
+    ubuntu)
+        update-alternatives --install /usr/share/plymouth/themes/default.plymouth default.plymouth "$PLY_DIR/mld.plymouth" 300
+        update-alternatives --set default.plymouth "$PLY_DIR/mld.plymouth"
+        ;;
+    fedora)
+        plymouth-set-default-theme mld
+        ;;
+    esac
     echo 'add_dracutmodules+=" plymouth "' > /etc/dracut.conf.d/91-mld-plymouth.conf
     # The theme is in the initrd (and the UKI). Make them again only when the theme changed: dracut takes minutes.
     new=$(cat "$PLY_DIR"/mld.plymouth "$PLY_DIR"/watermark.png | sha256sum | cut -d' ' -f1)

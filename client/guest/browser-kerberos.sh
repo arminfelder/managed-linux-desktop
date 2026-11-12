@@ -4,7 +4,7 @@
 # (GPO allowlist). No --ignore-certificate-errors.
 # Chrome first, with the session ticket cache (FILE:/tmp/krb5cc_<uid>, as in a desktop session): the Chrome network
 # service may not read other files. Firefox then with its own copy, so that the ticket from Chrome does not count.
-url="https://$DC_FQDN/certsrv/"
+url="${PROBE_URL:-https://$DC_FQDN/certsrv/}"
 src=$(klist 2>/dev/null | sed -n 's/^Ticket cache: //p')
 # probe NAME: runs the browser with its own ticket cache copy and a new profile, then counts HTTP/<dc> tickets.
 probe() {
