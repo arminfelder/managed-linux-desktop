@@ -7,23 +7,68 @@ log()  { printf '\033[1;32m[build]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[build]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[build]\033[0m %s\n' "$*" >&2; exit 1; }
 
-media_files() { printf '%s\n' "$WINSERVER_ISO" "$VIRTIO_ISO" "$UBUNTU_ISO"; }
+media_files() {
+    if [ "${IDP:-windows}" = freeipa ]; then
+        printf '%s\n' "$FEDORA_ISO"
+        [ "$CLIENT_ISO" = "$FEDORA_ISO" ] || printf '%s\n' "$CLIENT_ISO"
+    else
+        printf '%s\n' "$WINSERVER_ISO" "$VIRTIO_ISO" "$CLIENT_ISO"
+    fi
+}
+
+# The source ISO is too large to hash at each run. Its size and time stand for its content.
+iso_inputs() {
+    local role=$1 dir=$1 f v files=(lab.env lib/common.sh lib/config.sh "lib/$1.sh")
+    if [ "$role" = client ]; then
+        files+=("${BRAND_LOGO:-client/mld/brand/logo.svg}")
+        for f in "$STAGE/odj/${CLIENT_HOSTNAME^^}.txt" "$STAGE/join/${CLIENT_HOSTNAME,,}.otp" "$STAGE/sb/db.crt"; do
+            [ ! -f "$f" ] || files+=("$f")
+        done
+    elif [ "${IDP:-windows}" = freeipa ]; then
+        # The server ISO uses the Fedora remaster of lib/client.sh and the guest agent wrapper of the client.
+        dir=ipa files=(lab.env lib/common.sh lib/config.sh lib/ipa.sh lib/client.sh client/mld/selinux/qemu-ga-run.sh)
+    fi
+    {
+        find "$dir" -type f -not -path '*/__pycache__/*' -print0 | sort -z | xargs -0 sha256sum
+        sha256sum "${files[@]}"
+        [ "$dir" != ipa ] || stat -L -c '%n %s %Y' "$FEDORA_ISO" 2>/dev/null || echo "no $FEDORA_ISO"
+        if [ "$role" = client ]; then
+            stat -L -c '%n %s %Y' "$CLIENT_ISO" 2>/dev/null || echo "no $CLIENT_ISO"
+            for v in CLIENT_DISTRO CLIENT_INSTALL_ISO CLIENT_HOSTNAME CLIENT_DE UKI UKI_TRUST ENROLL_TPM2 PKI_ENROLL \
+                     CIFS_HOME SNX_RS BRAND_BG IDP NFS_HOME O365_APPS; do
+                printf '%s=%q\n' "$v" "${!v-}"
+            done
+        fi
+    } | sha256sum | cut -d' ' -f1
+}
+
+iso_stamp() { iso_inputs "$1" > "$STAGE/$1-iso.inputs"; }
+
+# iso_current ROLE FILE...: the files exist and the last "ROLE iso" made them from the current inputs.
+iso_current() {
+    local role=$1 f; shift
+    for f; do [ -f "$f" ] || return 1; done
+    [ "$(cat "$STAGE/$role-iso.inputs" 2>/dev/null)" = "$(iso_inputs "$role")" ]
+}
 
 sum_for() { awk -v n="$1" '$2 == n { print $1 }' "$HERE/checksums.sha256"; }
 
 # checksums.sha256 names files by basename.
+verify_one() {
+    local f="$1" want
+    [ -f "$f" ] || { printf '  MISSING %s\n' "$f"; return 1; }
+    want=$(sum_for "$(basename "$f")")
+    [ -n "$want" ] || { printf '  NO-SUM  %s  (./build.sh pin)\n' "$f"; return 1; }
+    if [ "$(sha256sum "$f" | cut -d' ' -f1)" = "$want" ]; then
+        printf '  ok      %s\n' "$(basename "$f")"
+    else
+        printf '  BAD-SUM %s\n' "$f"; return 1
+    fi
+}
+
 verify_media() {
-    local f want bad=0
-    while IFS= read -r f; do
-        [ -f "$f" ] || { printf '  MISSING %s\n' "$f"; bad=1; continue; }
-        want=$(sum_for "$(basename "$f")")
-        [ -n "$want" ] || { printf '  NO-SUM  %s  (./build.sh pin)\n' "$f"; bad=1; continue; }
-        if [ "$(sha256sum "$f" | cut -d' ' -f1)" = "$want" ]; then
-            printf '  ok      %s\n' "$(basename "$f")"
-        else
-            printf '  BAD-SUM %s\n' "$f"; bad=1
-        fi
-    done < <(media_files)
+    local f bad=0
+    while IFS= read -r f; do verify_one "$f" || bad=1; done < <(media_files)
     return "$bad"
 }
 
@@ -218,14 +263,15 @@ pick_os_variant() {
 }
 
 # guest_run ROLE FILE [NAME=VALUE ...]: runs FILE (repo path) in the guest through guest-exec.sh.
-# Each NAME=VALUE becomes a variable at the top of the script: bash NAME=... (client), PowerShell $NAME = '...' (dc).
+# Each NAME=VALUE becomes a variable at the top of the script: bash NAME=... (client, dc with IDP=freeipa),
+# PowerShell $NAME = '...' (dc with IDP=windows).
 # The values are quoted for the guest shell, so the file itself needs no escapes.
 guest_run() {
     local role="$1" file="$2" pre="" kv; shift 2
     for kv in "$@"; do
-        case "$role" in
-            client) pre+="${kv%%=*}=$(printf '%q' "${kv#*=}")"$'\n' ;;
-            dc)     pre+="\$${kv%%=*} = $(ps_str "${kv#*=}")"$'\n' ;;
+        case "$role:${IDP:-windows}" in
+            dc:windows) pre+="\$${kv%%=*} = $(ps_str "${kv#*=}")"$'\n' ;;
+            *)          pre+="${kv%%=*}=$(printf '%q' "${kv#*=}")"$'\n' ;;
         esac
     done
     ./guest-exec.sh "$role" "$pre$(cat "$HERE/$file")"

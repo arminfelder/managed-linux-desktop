@@ -2,6 +2,7 @@
 <!DOCTYPE pam_mount SYSTEM "pam_mount.conf.xml.dtd">
 <pam_mount>
   <debug enable="0" />
+  <msg-authpw>Password: </msg-authpw>
   <!-- Only AD users: sssd ID mapping gives UIDs from 200000 (ldap_idmap_range_min).
        systemd dynamic users (for example gdm-greeter, 60578) are below that and keep their local home. -->
   <!-- mfsymlinks: symlinks on the Windows share (as small files). ~/.tpm2_pkcs11 and ~/.config/certmonger point

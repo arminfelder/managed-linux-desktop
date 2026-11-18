@@ -12,13 +12,34 @@ declare -A S_DEFAULT=() S_HELP=() S_SECTION=() S_SOURCE=()
 
 # Allowed values. A setting not in this list takes any value.
 declare -A S_CHOICES=(
-    [UKI]="0 1" [UKI_TRUST]="db mok" [ENROLL_TPM2]="0 1" [CIFS_HOME]="0 1" [SMB_ENCRYPT]="0 1" [SNX_RS]="0 1" [CLIENT_DE]="gnome kde"
-    [PKI_ENROLL]="web dcom none"
+    [UKI]="0 1" [UKI_TRUST]="db mok" [ENROLL_TPM2]="0 1" [CIFS_HOME]="0 1" [SMB_ENCRYPT]="0 1" [SNX_RS]="0 1" [CLIENT_DE]="gnome kde" [CLIENT_DISTRO]="ubuntu fedora"
+    [PKI_ENROLL]="web dcom ipa none" [IDP]="windows freeipa" [NFS_HOME]="0 1" [O365_APPS]="0 1"
 )
 # The setting is asked only when the condition is true. Else the default is taken (empty for a password).
 # shellcheck disable=SC2016 # The conditions are evaluated later (eval), when the earlier answers are set.
 declare -A S_WHEN=(
     [UKI_TRUST]='[ "${UKI:-0}" = 1 ]'
+    [UBUNTU_ISO]='[ "${CLIENT_DISTRO:-ubuntu}" != fedora ]'
+    [UBUNTU_URL]='[ "${CLIENT_DISTRO:-ubuntu}" != fedora ]'
+    [FEDORA_ISO]='[ "${CLIENT_DISTRO:-ubuntu}" = fedora ] || [ "${IDP:-windows}" = freeipa ]'
+    [FEDORA_URL]='[ "${CLIENT_DISTRO:-ubuntu}" = fedora ] || [ "${IDP:-windows}" = freeipa ]'
+    [FEDORA_SUMS_URL]='[ "${CLIENT_DISTRO:-ubuntu}" = fedora ] || [ "${IDP:-windows}" = freeipa ]'
+    [WINSERVER_ISO]='[ "${IDP:-windows}" = windows ]'
+    [WINSERVER_URL]='[ "${IDP:-windows}" = windows ]'
+    [VIRTIO_ISO]='[ "${IDP:-windows}" = windows ]'
+    [VIRTIO_URL]='[ "${IDP:-windows}" = windows ]'
+    [WIN_IMAGE_INDEX]='[ "${IDP:-windows}" = windows ]'
+    [AD_LEVEL]='[ "${IDP:-windows}" = windows ]'
+    [NETBIOS]='[ "${IDP:-windows}" = windows ]'
+    [REGISTERED_OWNER]='[ "${IDP:-windows}" = windows ]'
+    [DSRM_PW]='[ "${IDP:-windows}" = windows ]'
+    [JOIN_USER]='[ "${IDP:-windows}" = windows ]'
+    [JOIN_PW]='[ "${IDP:-windows}" = windows ]'
+    [CIFS_HOME]='[ "${IDP:-windows}" = windows ]'
+    [SMB_ENCRYPT]='[ "${IDP:-windows}" = windows ]'
+    [CA_NAME]='[ "${IDP:-windows}" = windows ]'
+    [IPA_DM_PW]='[ "${IDP:-windows}" = freeipa ]'
+    [NFS_HOME]='[ "${IDP:-windows}" = freeipa ]'
     [MOK_PASSWORD]='[ "${UKI:-0}" = 1 ] && [ "${UKI_TRUST:-db}" = mok ]'
     [TPM2_PCRS]='[ "${ENROLL_TPM2:-0}" = 1 ]'
     [FIDO2_PIN]='[ -n "${FIDO2_HOSTDEV:-}" ]'

@@ -1,16 +1,23 @@
 # Client files: copied to /etc/mld (CIDATA), installed by the autoinstall, pushed again by build.sh client resume.
 # source                         target (- = only in /etc/mld)                    mode
 firstboot.sh                     /usr/local/sbin/mld-firstboot                     755
+distro.sh                        -                                                 644  all
 mld-firstboot.service            /etc/systemd/system/mld-firstboot.service         644
 boot/phase.sh                    -                                                 644
 boot/uki.sh                      /usr/local/sbin/mld-uki                           755
-boot/uki-postinst.sh             /etc/kernel/postinst.d/zz-mld-uki                 755
-boot/uki-postrm.sh               /etc/kernel/postrm.d/zz-mld-uki                   755
+boot/uki-postinst.sh             /etc/kernel/postinst.d/zz-mld-uki                 755  ubuntu
+boot/uki-postrm.sh               /etc/kernel/postrm.d/zz-mld-uki                   755  ubuntu
+boot/60-mld-uki.install        /etc/kernel/install.d/60-mld-uki.install          755  fedora
+boot/nvpcr-pcrkey.conf           /etc/systemd/system/systemd-tpm2-setup-early.service.d/mld-pcrkey.conf 644  fedora
+boot/nvpcr-pcrkey.conf           /etc/systemd/system/systemd-pcrproduct.service.d/mld-pcrkey.conf 644  fedora
+boot/nvpcr-pcrkey.conf           /etc/systemd/system/systemd-pcrlogin@.service.d/mld-pcrkey.conf 644  fedora
 ad/phase.sh                      -                                                 644
+ipa/phase.sh                     -                                                 644  freeipa
 cert/phase.sh                    -                                                 644
 cert/cert.sh                     /usr/local/sbin/mld-cert                          755
 cert/cert-dcom.py                /usr/local/sbin/mld-cert-dcom                     755
 cert/autoenroll.py               /usr/local/sbin/mld-autoenroll                    755
+cert/cert-prune.sh               /usr/local/libexec/mld-cert-prune                 755
 cert/cm-submit.sh                /usr/local/libexec/mld-cm-submit                  755
 cert/mld-autoenroll.service      /etc/systemd/system/mld-autoenroll.service        644
 cert/mld-autoenroll.timer        /etc/systemd/system/mld-autoenroll.timer          644
@@ -18,14 +25,16 @@ cert/mld-certmonger-user.service /etc/systemd/user/mld-certmonger-user.service  
 cert/mld-autoenroll-user.service /etc/systemd/user/mld-autoenroll-user.service     644
 cert/mld-autoenroll-user.timer   /etc/systemd/user/mld-autoenroll-user.timer       644
 home/phase.sh                    -                                                 644
-home/home-umount.sh              /usr/local/sbin/mld-home-umount                   755
-home/user-home-umount.conf       /etc/systemd/system/user@.service.d/mld-home-umount.conf 644
+home/home-umount.sh              /usr/local/sbin/mld-home-umount                   755  windows
+home/user-home-umount.conf       /etc/systemd/system/user@.service.d/mld-home-umount.conf 644  windows
 home/xdg-cache.sh                -                                                 644
 home/sshd-mld.conf               -                                                 644
 apps/phase.sh                    -                                                 644
-apps/mozilla.sources             -                                                 644
-apps/mozilla.pref                -                                                 644
-apps/google-chrome.sources       -                                                 644
+apps/mozilla.sources             -                                                 644  ubuntu
+apps/mozilla.pref                -                                                 644  ubuntu
+apps/google-chrome.sources       -                                                 644  ubuntu
+apps/google-chrome.repo       -                                                 644  fedora
+apps/google-linux-signing.asc       -                                                 644  fedora
 apps/chrome-policy.json          /etc/opt/chrome/policies/managed/mld.json         644
 desktop/phase.sh                 -                                                 644
 desktop/o365-apps.list           -                                                 644
@@ -33,15 +42,23 @@ desktop/dconf-user.profile       -                                              
 desktop/mld-desktop.service      /etc/systemd/user/mld-desktop.service             644
 desktop/desktop.sh               /usr/local/libexec/mld-desktop                    755
 desktop/pins.list                -                                                 644
-gpo/phase.sh                     -                                                 644
-gpo/gpupdate.sh                  /usr/local/sbin/mld-gpupdate                      755
-gpo/mld-gpupdate.service         /etc/systemd/system/mld-gpupdate.service          644
-gpo/mld-gpupdate.timer           /etc/systemd/system/mld-gpupdate.timer            644
+gpo/phase.sh                     -                                                 644  windows
+gpo/gpupdate.sh                  /usr/local/sbin/mld-gpupdate                      755  windows
+gpo/mld-gpupdate.service         /etc/systemd/system/mld-gpupdate.service          644  windows
+gpo/mld-gpupdate.timer           /etc/systemd/system/mld-gpupdate.timer            644  windows
+policy/phase.sh                  -                                                 644  freeipa
+policy/policy.py                 /usr/local/sbin/mld-policy                        755  freeipa
+policy/mld-policy.service        /etc/systemd/system/mld-policy.service            644  freeipa
+policy/mld-policy.timer          /etc/systemd/system/mld-policy.timer              644  freeipa
 vpn/phase.sh                     -                                                 644
-vpn/snx-rs.sources               -                                                 644
+vpn/snx-rs.sources               -                                                 644  ubuntu
+vpn/snx-rs.repo               -                                                 644  fedora
+vpn/snx-rs.asc               -                                                 644  fedora
 vpn/snx-rs-tpm.conf              -                                                 644
 update/phase.sh                  -                                                 644
-update/52mld-unattended-upgrades -                                                 644
+update/52mld-unattended-upgrades -                                                 644  ubuntu
+update/automatic.conf            /etc/dnf/automatic.conf                           644  fedora
+update/dnf5-automatic-mld.conf     /etc/systemd/system/dnf5-automatic.service.d/mld.conf 644  fedora
 update/reboot.sh                 /usr/local/sbin/mld-reboot                        755
 update/mld-reboot.service        /etc/systemd/system/mld-reboot.service            644
 update/mld-reboot.timer          /etc/systemd/system/mld-reboot.timer              644
@@ -49,3 +66,10 @@ brand/phase.sh                   -                                              
 brand/mld.plymouth               -                                                 644
 brand/logo.png                   /usr/share/mld/brand/logo.png                     644
 brand/background.png             /usr/share/mld/brand/background.png               644
+selinux/phase.sh                 -                                                 644  fedora
+selinux/mld.te                   -                                                 644  fedora
+selinux/fcontexts.list           -                                                 644  fedora
+selinux/booleans.list            -                                                 644  fedora
+selinux/avc-ignore.list          -                                                 644  fedora
+selinux/avc-report.sh            /usr/local/libexec/mld-avc-report                 755  fedora
+selinux/qemu-ga-run.sh           /usr/libexec/mld/qemu-ga-run                      755  fedora

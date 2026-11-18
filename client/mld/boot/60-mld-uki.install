@@ -1,0 +1,7 @@
+#!/bin/sh
+# kernel-install plugin: $1 = add|remove|inspect, $2 = kernel version. It runs after 50-dracut.install.
+case "$1" in
+    add) exec /usr/local/sbin/mld-uki "$2" ;;
+    remove) exec /usr/local/sbin/mld-uki remove "$2" ;;
+    *) exit 0 ;;
+esac

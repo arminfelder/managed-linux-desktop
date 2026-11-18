@@ -39,7 +39,7 @@ write_dracut_conf() {
 regen_initrd() {
     write_dracut_conf
     dracut --force --regenerate-all
-    local img; img="/boot/initrd.img-$(uname -r)"
+    local img; img=$(initrd_path "$(uname -r)")
     lsinitrd -f etc/crypttab "$img" | grep -q -- "$1" \
         || fail "initrd $img has no '$1' in etc/crypttab"
     # With UKI=1 the firmware boots the initrd inside the UKI. The UKI uses the same dracut configuration.
@@ -87,6 +87,12 @@ cmd_enroll_fido2() {
 # The hash from lab.env (CLIENT_ADMIN_PW) comes in admin-hash; chpasswd -e keeps it off the command line.
 phase_admin_pw() {
     local u=${CLIENT_ADMIN:-labadmin} f="$CFG/admin-hash"
+    if [ "$CLIENT_DISTRO" = fedora ]; then
+        case "$(passwd -S "$u" | awk '{ print $2 }')" in
+            P|PS) return 0 ;;
+            *) fail "$u has no password" ;;
+        esac
+    fi
     [ "$(passwd -S "$u" | awk '{ print $2 }')" = NP ] || return 0
     phase admin-pw
     [ -s "$f" ] || fail "$u has no password, and $f is missing (build.sh client resume pushes it)"

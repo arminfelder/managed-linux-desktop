@@ -12,8 +12,24 @@ phase_desktop() {
     # The local desktop folders are in the per-device user directories (see phase_pki).
     install -d -m 1733 -o root -g root /var/lib/mld-users
     local base=https://res-1.cdn.office.net/files/fabric-cdn-prod_20240129.001/assets/brand-icons/product/svg
-    local icons=/usr/share/icons/hicolor/scalable/apps id name url icon sum tmp
+    local icons=/usr/share/icons/hicolor/scalable/apps
     install -d -m 755 "$icons"
+    # O365_APPS=0 (default with IDP=freeipa): no Microsoft 365 launchers, and the ones of an earlier build go.
+    # Do not gate inside the read loop: awk then gets SIGPIPE and the subshell ERR trap writes FAILED (seen 2026-11-18).
+    if [ "${O365_APPS:-1}" != 1 ]; then
+        rm -f /usr/share/applications/mld-o365-*.desktop "$icons"/mld-o365-*.svg
+    else
+        desktop_o365_apps "$base" "$icons"
+    fi
+    gtk-update-icon-cache -q -f /usr/share/icons/hicolor 2>/dev/null || true
+    update-desktop-database -q /usr/share/applications 2>/dev/null || true
+    desktop_pins
+    desktop_user_unit
+}
+
+# Launchers and icons from o365-apps.list. Arguments: icon CDN base URL, icon directory.
+desktop_o365_apps() {
+    local base=$1 icons=$2 id name url icon sum tmp
     while read -r id name url icon sum; do
         name=${name//_/ }
         if ! echo "$sum  $icons/mld-o365-$id.svg" | sha256sum -c --status 2>/dev/null; then
@@ -27,10 +43,15 @@ phase_desktop() {
             "Exec=/usr/bin/google-chrome-stable --app=$url" "Icon=mld-o365-$id" 'Categories=Office;' \
             'Terminal=false' > "/usr/share/applications/mld-o365-$id.desktop"
     done < <(awk '!/^#/ && NF { n = $2; for (i = 3; i < NF - 2; i++) n = n "_" $i; print $1, n, $(NF-2), $(NF-1), $NF }' "$CFG/desktop/o365-apps.list")
-    gtk-update-icon-cache -q -f /usr/share/icons/hicolor 2>/dev/null || true
-    update-desktop-database -q /usr/share/applications 2>/dev/null || true
-    desktop_pins
-    systemctl --global enable mld-desktop.service
+}
+
+# Fedora GNOME stays stock: no desktop icons, so no mld-desktop. An older build may have enabled it.
+desktop_user_unit() {
+    if [ "${CLIENT_DISTRO:-ubuntu}" = fedora ] && [ "${CLIENT_DE:-gnome}" = gnome ]; then
+        systemctl --global disable mld-desktop.service
+    else
+        systemctl --global enable mld-desktop.service
+    fi
 }
 
 # The client has one desktop (CLIENT_DE). client resume does not swap it: that needs a new client build.
@@ -47,14 +68,18 @@ desktop_sddm() {
     local f=/etc/sddm.conf.d/90-mld.conf bg=/usr/share/mld/brand/background.png
     local user=/usr/share/sddm/themes/breeze/theme.conf.user tmp sim changed=0
     pkg_install sddm-theme-breeze
-    # kde-plasma-desktop brings budgie-sddm-theme. Its 50-ubuntu-budgie.conf selects the Budgie greeter: a white screen
-    # under Plasma. Purge it only when apt removes nothing else.
-    if dpkg -s budgie-sddm-theme >/dev/null 2>&1; then
-        sim=$(apt-get -s purge budgie-sddm-theme | grep -E '^(Purg|Remv) ' | grep -v '^Purg budgie-sddm-theme ' || true)
-        [ -z "$sim" ] || fail "a purge of budgie-sddm-theme also removes: $sim"
-        DEBIAN_FRONTEND=noninteractive apt-get purge -y budgie-sddm-theme
-        changed=1
-    fi
+    case "$CLIENT_DISTRO" in
+    ubuntu)
+        # kde-plasma-desktop brings budgie-sddm-theme. Its 50-ubuntu-budgie.conf selects the Budgie greeter: a white screen
+        # under Plasma. Purge it only when apt removes nothing else.
+        if dpkg -s budgie-sddm-theme >/dev/null 2>&1; then
+            sim=$(apt-get -s purge budgie-sddm-theme | grep -E '^(Purg|Remv) ' | grep -v '^Purg budgie-sddm-theme ' || true)
+            [ -z "$sim" ] || fail "a purge of budgie-sddm-theme also removes: $sim"
+            DEBIAN_FRONTEND=noninteractive apt-get purge -y budgie-sddm-theme
+            changed=1
+        fi
+        ;;
+    esac
     rm -f /etc/sddm.conf.d/50-mld.conf
     tmp=$(mktemp)
     # No user list: the login screen asks for the user name (AD users).
@@ -73,19 +98,53 @@ desktop_sddm() {
     fi
 }
 
+# Fedora 45 KDE uses Plasma Login Manager. Its package has no key for the user list (no MaximumUid, no HideUsers), so
+# the list stays as the package sets it. The background is the Greeter wallpaper group of kde-settings-plasmalogin.
+desktop_plasmalogin() {
+    local f=/etc/plasmalogin.conf.d/90-mld.conf bg=/usr/share/mld/brand/background.png tmp
+    tmp=$(mktemp)
+    printf '%s\n' '# Written by mld-firstboot (desktop_plasmalogin).' '[Greeter]' 'WallpaperPlugin=org.kde.image' \
+        '[Greeter][Wallpaper][org.kde.image][General]' "Image=file://$bg" "PreviewImage=file://$bg" > "$tmp"
+    if cmp -s "$tmp" "$f"; then rm -f "$tmp"; return 0; fi
+    install -D -m 644 "$tmp" "$f"
+    rm -f "$tmp"
+    if loginctl list-sessions --no-legend | awk '$3 != "plasmalogin" && $4 == "seat0"' | grep -q .; then
+        echo "Plasma Login Manager settings changed: active after the next reboot (a user session is open)"
+    else
+        systemctl restart plasmalogin.service
+    fi
+}
+
+# Ubuntu has no profile: ours names the user and the local database. The Fedora profile belongs to the dconf package
+# (user, local, site, distro). It stays, and gets the local line only if it has none.
+desktop_dconf_profile() {
+    local f=/etc/dconf/profile/user
+    case "${CLIENT_DISTRO:-ubuntu}" in
+    ubuntu) install -D -m 644 "$CFG/desktop/dconf-user.profile" "$f" ;;
+    fedora)
+        if [ ! -s "$f" ]; then install -D -m 644 "$CFG/desktop/dconf-user.profile" "$f"
+        elif ! grep -qx 'system-db:local' "$f"; then echo 'system-db:local' >> "$f"; fi
+        ;;
+    esac
+}
+
 # One pin list for both desktops: the GNOME dock (dconf default) and the KDE task manager (Plasma update script).
 desktop_pins() {
     # The script goes into the updates folder of the installed shell package. A folder with the same package name in
     # /usr/local/share comes first in XDG_DATA_DIRS and has no metadata: plasmashell then loads no desktop and no
     # panel ("Invalid corona package metadata", black screen). Old clients have that folder.
-    local fm pins=() p js=/usr/share/plasma/shells/org.kde.plasma.desktop/contents/updates/mld-pins.js
+    local fm ff pins=() p js=/usr/share/plasma/shells/org.kde.plasma.desktop/contents/updates/mld-pins.js
     rm -rf /usr/local/share/plasma/shells/org.kde.plasma.desktop
     rmdir --ignore-fail-on-non-empty /usr/local/share/plasma/shells /usr/local/share/plasma 2>/dev/null || true
     case "${CLIENT_DE:-gnome}" in gnome) fm=org.gnome.Nautilus.desktop ;; kde) fm=org.kde.dolphin.desktop ;; esac
-    while read -r p; do pins+=("${p/#@filemanager/$fm}"); done < <(grep -v -E '^\s*(#|$)' "$CFG/desktop/pins.list")
+    case "${CLIENT_DISTRO:-ubuntu}" in ubuntu) ff=firefox.desktop ;; fedora) ff=org.mozilla.firefox.desktop ;; esac
+    while read -r p; do
+        [ "${O365_APPS:-1}" = 1 ] || [[ "$p" != mld-o365-* ]] || continue
+        p=${p/#@filemanager/$fm}; pins+=("${p/#@firefox/$ff}")
+    done < <(grep -v -E '^\s*(#|$)' "$CFG/desktop/pins.list")
     if [ "${CLIENT_DE:-gnome}" = gnome ]; then
         rm -f "$js"
-        install -D -m 644 "$CFG/desktop/dconf-user.profile" /etc/dconf/profile/user
+        desktop_dconf_profile
         install -d -m 755 /etc/dconf/db/local.d
         { echo '# Generated by mld-firstboot from /etc/mld/desktop/pins.list. A user setting wins over this default.'
           echo '[org/gnome/shell]'
@@ -93,10 +152,15 @@ desktop_pins() {
         } > /etc/dconf/db/local.d/10-mld-desktop
         dconf update
     else
-        # The profile names the system database "local". Without the database, each GTK program writes a warning.
-        rm -f /etc/dconf/db/local.d/10-mld-desktop /etc/dconf/profile/user
+        # The Ubuntu profile is ours and names the system database "local". Without the database, each GTK program
+        # writes a warning. The Fedora profile belongs to the dconf package: it stays.
+        rm -f /etc/dconf/db/local.d/10-mld-desktop
+        [ "${CLIENT_DISTRO:-ubuntu}" = fedora ] || rm -f /etc/dconf/profile/user
         if command -v dconf >/dev/null; then dconf update; fi
-        desktop_sddm
+        case "${CLIENT_DISTRO:-ubuntu}" in
+        ubuntu) desktop_sddm ;;
+        fedora) desktop_plasmalogin ;;
+        esac
         # plasmashell runs each update script one time per user, at the next login (plasmashellrc, [Updates]).
         install -d -m 755 "${js%/*}"
         { echo '// Generated by mld-firstboot from /etc/mld/desktop/pins.list: pins in the task manager, as the GNOME dock.'

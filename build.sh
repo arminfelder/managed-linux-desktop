@@ -16,6 +16,7 @@
 #   ./build.sh dc wait            block until DC provisioning is DONE or FAILED
 #   ./build.sh dc phase|log [N]|resume [PHASE]|verify|screenshot
 #   ./build.sh dc set-passwords   set the AD passwords on the DC to the values in lab.env (not DSRM)
+#   ./build.sh dc policy          IDP=freeipa: publish ipa/policy/*.json again (the clients pull it, mld-policy)
 #   ./build.sh dc snapshot|revert|destroy [--confirm NAME]
 #
 #   ./build.sh client iso         remaster the Ubuntu ISO, build .stage/cidata.iso (with the offline join blob)
@@ -74,8 +75,13 @@ GUEST_WORK='C:\build'
 . "$HERE/lib/config.sh"
 # shellcheck source=lib/host.sh
 . "$HERE/lib/host.sh"
-# shellcheck source=lib/dc.sh
-. "$HERE/lib/dc.sh"
+if [ "$IDP" = freeipa ]; then
+    # shellcheck source=lib/ipa.sh
+    . "$HERE/lib/ipa.sh"
+else
+    # shellcheck source=lib/dc.sh
+    . "$HERE/lib/dc.sh"
+fi
 # shellcheck source=lib/client.sh
 . "$HERE/lib/client.sh"
 # shellcheck source=lib/tests.sh
@@ -166,9 +172,8 @@ cmd_all() {
 cmd_setup() {
     local t0=$SECONDS
     log "1/4 media: download, then check the sums"
-    fetch_one "$WINSERVER_ISO" "$WINSERVER_URL"
-    fetch_one "$VIRTIO_ISO"    "$VIRTIO_URL"
-    fetch_one "$UBUNTU_ISO"    "$UBUNTU_URL"
+    fetch_server_media
+    fetch_client_media
     # Microsoft and virtio-win publish no sums: the first download is pinned (trust on first use).
     # A file with a pinned sum that does not match stops the setup.
     local before; before=$(cat "$HERE/checksums.sha256" 2>/dev/null)

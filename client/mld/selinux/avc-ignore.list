@@ -1,0 +1,2 @@
+# One line per accepted upstream denial: <extended regex without white space> <URL of the bug report> [comment]
+# mld-avc-report hides each AVC line that matches a regex. A line here is never a policy module.

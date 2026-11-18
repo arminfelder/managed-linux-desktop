@@ -1,6 +1,6 @@
 # Boot and disk encryption
 
-Secure Boot, LUKS2 keyslots (TPM2, FIDO2) and the signed unified kernel image (UKI).
+Secure Boot, LUKS2 keyslots (TPM2, FIDO2) and the signed unified kernel image (UKI). The text is for Ubuntu. Fedora differences are in [Fedora differences](#fedora-differences).
 
 These procedures use ASD-STE100 Simplified Technical English. The prerequisites and the build procedure are in [README.md](../README.md).
 
@@ -91,6 +91,23 @@ In the lab, `lib/console.py` types the confirmation and the MOK password on the 
 NOTE: `client fallback-test` boots the plain shim and grub entry one time (`BootNext`). The TPM must not unlock this path, because PCR 7 is different. The test also applies to `UKI_TRUST=db`.
 
 NOTE: If `client mok-enroll` stops with `boot went on without MokManager`, read `.stage/client-console.log`. MokManager waits only 10 seconds for a key.
+
+## Fedora differences
+
+`CLIENT_DISTRO=fedora` gives the same boot chain, keyslots and UKI options. These values differ:
+
+| | Ubuntu | Fedora |
+|---|---|---|
+| Installer | autoinstall (subiquity) | kickstart `client/ks.cfg.tmpl` (Anaconda) |
+| Partitions | ESP 1 GB, `/boot`, LUKS2 PV, LVM root | same: ESP 1 GB, `/boot` ext4, LUKS2 PV, LVM `root` (xfs) |
+| Shim | `\EFI\ubuntu\shimx64.efi` | `\EFI\fedora\shimx64.efi` |
+| initrd | `/boot/initrd.img-<kernel>` | `/boot/initramfs-<kernel>.img` |
+| Kernel command line | `/etc/default/grub` and `update-grub` | `grubby --update-kernel=ALL` (BLS entries) |
+| UKI hook | `/etc/kernel/postinst.d/zz-mld-uki`, `postrm.d/zz-mld-uki` | `/etc/kernel/install.d/60-mld-uki.install` (kernel-install `add`, `remove`) |
+
+NOTE: The UKI text above also applies to Fedora, except that `dnf` installs the kernel and `kernel-install` runs the hook.
+
+NOTE: The `systemd-networkd` DNS mask of the Ubuntu client is not part of the Fedora build. The Fedora DNS setting is in `client/mld/ad/phase.sh` (`dns_configure_fedora`).
 
 ## Use FIDO2 unlock
 

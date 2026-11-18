@@ -1,0 +1,9 @@
+# Key fingerprint 81EE7E8627CB26ECA46CE6572BE0562851E26770 (snx-rs.asc, from https://ancwrd1.github.io/snx-rs/KEY.gpg, fetched 2026-11-12).
+# Upstream snx-rs.repo has a gpgkey URL. Here the key is a pinned local file. The same key signs the repository metadata.
+[snx-rs]
+name=snx-rs
+baseurl=https://ancwrd1.github.io/snx-rs/rpm/$basearch
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/mld-snx-rs.asc

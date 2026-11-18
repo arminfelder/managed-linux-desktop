@@ -30,11 +30,15 @@ trap '[ -z "$TMP" ] || rm -rf "$TMP"' EXIT
 
 die() { echo "$*" >&2; exit 1; }
 # shellcheck source=/dev/null
-load_config() { . /etc/mld/config.env; }
+load_config() { . /etc/mld/config.env; . /etc/mld/distro.sh; }
 
+# Fedora also has /boot/vmlinuz-0-rescue-<machine-id>. It has no module directory, so dracut cannot use it.
 kernels() {
-    local f
-    for f in /boot/vmlinuz-*; do if [ -e "$f" ]; then echo "${f#/boot/vmlinuz-}"; fi; done | sort -V
+    local f k
+    for f in /boot/vmlinuz-*; do
+        k=${f#/boot/vmlinuz-}
+        if [ -e "$f" ] && [ -d "/lib/modules/$k" ]; then echo "$k"; fi
+    done | sort -V
 }
 
 mok_state() {
@@ -103,8 +107,8 @@ cmd_bootentry() {
         # Without the MOK, shim refuses the UKI. The installer leaves shim + grub as the only entry.
         state=$(mok_state)
         if [ "$state" != enrolled ]; then echo "MOK $state: no UKI boot entry yet"; return; fi
-        shim='\EFI\ubuntu\shimx64.efi'
-        [ -f /boot/efi/EFI/ubuntu/shimx64.efi ] || die "no /boot/efi/EFI/ubuntu/shimx64.efi"
+        shim=$SHIM_EFI
+        [ -f "$SHIM_FILE" ] || die "no $SHIM_FILE"
         prefix="MLD UKI (shim)"
     fi
     read -r disk part < <(esp_disk_part)

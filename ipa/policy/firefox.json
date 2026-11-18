@@ -1,0 +1,12 @@
+{
+  "policies": {
+    "Authentication": {
+      "SPNEGO": [".@@DOMAIN@@"]
+    },
+    "SecurityDevices": {
+      "Add": {
+        "p11-kit-trust": "@P11KIT_TRUST@"
+      }
+    }
+  }
+}

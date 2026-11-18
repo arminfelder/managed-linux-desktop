@@ -48,15 +48,19 @@ EOF
     done
     genisoimage -quiet -J -r -V PROVISION -o "$STAGE/dc-provision.iso" "$d"
     log "dc-provision.iso ready ($(du -h "$STAGE/dc-provision.iso" | cut -f1))"
+    iso_stamp dc
 }
 
 dc_vm() {
     require_qemu_access
     pool_refresh
-    [ -f "$STAGE/dc-provision.iso" ] || die "run ./build.sh dc iso first"
     vm_exists "$DC_VM" && die "VM '$DC_VM' exists: ./build.sh dc destroy first"
     require_no_orphan_disk "$DC_VM"
     require_nocow "$DC_VM"
+    if ! iso_current dc "$STAGE/dc-provision.iso"; then
+        log "dc-provision.iso missing or older than its inputs: building it"
+        dc_iso
+    fi
     log "creating $DC_VM (${DC_VCPUS} vCPU, ${DC_RAM_MB} MB, ${DC_DISK_GB} GB, SeaBIOS)"
     # clock offset=utc: Kerberos rejects more than 5 min skew between the client and the DC.
     # The install config has on_reboot=destroy. --wait keeps virt-install until the first Setup reboot,
@@ -167,6 +171,20 @@ dc_wait() {
     die "timed out. Check ./build.sh dc screenshot and ./build.sh dc log"
 }
 
+# The provisioning marker is there before AD DS answers after a boot. Get-ADDomain waits for AD DS.
+dc_ready() {
+    local i
+    vm_exists "$DC_VM" || die "no VM '$DC_VM': ./build.sh dc vm first (about 1 h)"
+    vm_running "$DC_VM" || dc_start
+    dc_wait
+    for i in $(seq 20); do
+        GUEST_EXEC_TIMEOUT=30 ./guest-exec.sh dc 'Get-ADDomain | Out-Null' >/dev/null 2>&1 && return 0
+        [ "$i" -gt 1 ] || log "waiting for AD DS on $DC_VM"
+        sleep 15
+    done
+    die "AD DS on $DC_VM does not answer after 5 min: ./build.sh dc screenshot"
+}
+
 # For a fix after FAILED. config.ps1 stays as rendered at build time.
 dc_resume() {
     local f from="${1:-}"
@@ -255,6 +273,9 @@ dc_set_passwords() {
         || die "could not set the passwords on the DC"
     log "AD passwords set from lab.env (Administrator, ${LAB_USER_LIST[*]}, $JOIN_USER). DSRM_PW is unchanged"
 }
+
+# dc_read_home_file USER FILE: a file in the home of USER, read on the DC (client verify).
+dc_read_home_file() { ./guest-exec.sh dc "Get-Content 'C:\\Homes\\$1\\$2'"; }
 
 # certsrv on the DC: HTTP status and IIS substatus, SSL setting, Windows authentication, firewall for TCP 80.
 dc_certsrv_diag() { guest_run dc dc/guest/certsrv-diag.ps1; }

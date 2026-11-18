@@ -1,0 +1,15 @@
+[Unit]
+Description=MLD FreeIPA server provisioning
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=!/var/lib/mld-ipa/DONE
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mld-ipa-provision
+# ipa-server-install takes about 4 min on 2 vCPU (seen 2026-11-18).
+TimeoutStartSec=0
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

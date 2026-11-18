@@ -1,0 +1,95 @@
+#cloud-config
+# Rendered by build.sh into the CIDATA CD. Contains lab secrets: never commit the rendered file.
+autoinstall:
+  version: 1
+  # The live system starts unattended-upgrades. It competes with the install for apt and the network.
+  early-commands:
+    - systemctl stop unattended-upgrades.service apt-daily.timer apt-daily-upgrade.timer apt-daily.service apt-daily-upgrade.service || true
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  timezone: UTC
+  identity:
+    hostname: lnx01
+    username: labadmin
+    password: HASH-NORMALISED
+  ssh:
+    install-server: true
+    allow-pw: true
+  # DHCP gives the address (fixed by MAC in libvirt/mld-lab.xml). DNS must be the DC, so AD SRV lookups work.
+  network:
+    version: 2
+    ethernets:
+      lan:
+        match:
+          name: "en*"
+        dhcp4: true
+        dhcp4-overrides:
+          use-dns: false
+          use-domains: false
+        nameservers:
+          addresses: [10.110.0.2]
+          search: [mld.contoso.com]
+  # ESP + /boot (plain) + LUKS PV + LVM root. The passphrase is the first keyslot.
+  storage:
+    layout:
+      name: lvm
+      sizing-policy: all
+      password: HASH-NORMALISED
+  packages:
+    - ubuntu-desktop-minimal
+    - gdm3
+    - sssd
+    - sssd-tools
+    - sssd-ad
+    - libnss-sss
+    - libpam-sss
+    - realmd
+    - adcli
+    - samba-common-bin
+    - krb5-user
+    - libpam-mount
+    - cifs-utils
+    - keyutils
+    - bind9-host
+    - tpm2-tools
+    - libfido2-1
+    - fido2-tools
+    - mokutil
+    - efibootmgr
+    - sbsigntool
+    - systemd-boot-efi
+    - tpm2-openssl
+    - python3-impacket
+    - ldap-utils
+    - libsasl2-modules-gssapi-mit
+    - certmonger
+    - libtpm2-pkcs11-1
+    - libtpm2-pkcs11-tools
+    - libnss3-tools
+    - opensc
+    - curl
+    - qemu-guest-agent
+  late-commands:
+    # cloud-init does not keep the CIDATA CD mounted. Copy the lab files into the target.
+    - mkdir -p /mnt/cidata && mount -o ro /dev/disk/by-label/CIDATA /mnt/cidata
+    - install -d -m 700 /target/etc/mld
+    - cp -a /mnt/cidata/mld/. /target/etc/mld/
+    # cp -a also copies the mode of the CD directory to /target/etc/mld.
+    - chmod 700 /target/etc/mld
+    - chmod 600 /target/etc/mld/odj.txt /target/etc/mld/luks-pass /target/etc/mld/admin-hash
+    - if [ -d /target/etc/mld/sb ]; then chmod 700 /target/etc/mld/sb; chmod 600 /target/etc/mld/sb/*; fi
+    # One list for the autoinstall, CIDATA and build.sh client resume: /etc/mld/install.list.
+    - |
+      while read -r src dst mode; do
+        case "$src" in ""|"#"*) continue ;; esac
+        [ "$dst" = - ] || install -D -m "$mode" "/target/etc/mld/$src" "/target$dst"
+      done < /target/etc/mld/install.list
+    - curtin in-target -- systemctl enable mld-firstboot.service qemu-guest-agent.service
+    - umount /mnt/cidata
+    # Serial console: build.sh client unlock reads the passphrase prompt there and types the passphrase.
+    - sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="splash console=tty0 console=ttyS0,115200n8"/' /target/etc/default/grub
+    - curtin in-target -- update-grub
+    # UKI=1 only (the script exits otherwise): build the signed UKI of each kernel in the target, with its boot entry.
+    - curtin in-target -- /usr/local/sbin/mld-uki all
+  shutdown: reboot

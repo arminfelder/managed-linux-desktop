@@ -4,9 +4,12 @@
 
 phase_gpo() {
     phase gpo
-    # samba-dsdb-modules has the ldb backend ildap. Without it, ldap:// uses the plain OpenLDAP module from libldb2:
+    # samba-dsdb-modules (Fedora: samba-ldb-ldap-modules) has the ldb backend ildap. Without it, ldap:// uses the plain OpenLDAP module from libldb2:
     # no bind with the machine credentials, and samba-gpupdate fails ("a successful bind must be completed").
-    pkg_install python3-samba samba-dsdb-modules
+    case "$CLIENT_DISTRO" in
+    ubuntu) pkg_install python3-samba samba-dsdb-modules ;;
+    fedora) pkg_install python3-samba samba-gpupdate samba-ldb-ldap-modules ;;
+    esac
     mld-gpupdate --force
     # The two Kerberos settings show that the GPO came through (Chrome: one file per GPO, Firefox: one file).
     grep -qs '"AuthServerAllowlist"' /etc/opt/chrome/policies/managed/*.json \
