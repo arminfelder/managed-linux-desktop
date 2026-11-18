@@ -118,7 +118,10 @@ qemu_blocked_dirs() {
 }
 
 # Parent directories of the VM files that $QEMU_USER cannot enter (one per line, no duplicates).
-qemu_blocked_all() { for d in "$POOL_DIR" "$MEDIA_DIR" "$STAGE"; do qemu_blocked_dirs "$d"; done | sort -u; }
+qemu_blocked_all() {
+    local d
+    for d in "$POOL_DIR" "$MEDIA_DIR" "$STAGE"; do qemu_blocked_dirs "$d"; done | sort -u
+}
 
 # The setfacl command that opens the blocked directories. A tmpfs mount point (/run/media/$USER) loses
 # the ACL at each host reboot. Then virsh start fails with "Permission denied" on the disk.
@@ -127,7 +130,9 @@ qemu_access_fix() { printf 'sudo setfacl -m u:%s:x%s' "${QEMU_USER:-libvirt-qemu
 require_qemu_access() {
     local -a blocked
     mapfile -t blocked < <(qemu_blocked_all)
-    [ "${#blocked[@]}" -eq 0 ] || die "${QEMU_USER:-libvirt-qemu} cannot enter:$(printf ' %s' "${blocked[@]}"). Run: $(qemu_access_fix "${blocked[@]}")"
+    [ "${#blocked[@]}" -eq 0 ] \
+        || die "${QEMU_USER:-libvirt-qemu} cannot enter:$(printf ' %s' "${blocked[@]}")." \
+               "Run: $(qemu_access_fix "${blocked[@]}")"
 }
 
 # On btrfs, copy-on-write fragments a VM disk on every guest write.
@@ -151,7 +156,8 @@ nocow_problem() {
         nocow "$f"; rc=$?
         case "$rc" in
             0) ;;
-            2) unknown="${unknown:+$unknown; }cannot read the flags of $f without root. Check with: sudo lsattr -d $f" ;;
+            2) unknown="${unknown:+$unknown; }cannot read the flags of $f without root."
+               unknown+=" Check with: sudo lsattr -d $f" ;;
             *) if [ "$f" = "$dir" ]; then
                    echo "$dir is on btrfs with CoW enabled. Run: sudo chattr +C $dir"
                else
@@ -188,7 +194,9 @@ require_no_orphan_disk() {
     local vm="$1" v
     pool_refresh
     v=$("${VIRSH[@]}" vol-list "$POOL" 2>/dev/null | awk -v re="^${vm}(-[0-9]+)?[.]qcow2$" '$1 ~ re { print $1 }')
-    [ -z "$v" ] || die "pool $POOL has disks of '$vm' with no VM: $(tr '\n' ' ' <<<"$v"). Check, then: virsh vol-delete NAME --pool $POOL"
+    [ -z "$v" ] \
+        || die "pool $POOL has disks of '$vm' with no VM: $(tr '\n' ' ' <<<"$v")." \
+               "Check, then: virsh vol-delete NAME --pool $POOL"
 }
 
 json_get() { python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get(sys.argv[1], ""))' "$1"; }

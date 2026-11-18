@@ -2,7 +2,10 @@
 # Returns $true: the promotion completes during the reboot.
 $ErrorActionPreference = 'Stop'
 
-try { Import-Module ActiveDirectory -ErrorAction Stop; if (Get-ADDomain -ErrorAction Stop) { Write-Host 'AD already installed'; return $false } } catch {}
+try {
+    Import-Module ActiveDirectory -ErrorAction Stop
+    if (Get-ADDomain -ErrorAction Stop) { Write-Host 'AD already installed'; return $false }
+} catch {}
 
 $nic = Get-NetAdapter -Physical | Where-Object Status -eq 'Up' | Select-Object -First 1
 if (-not $nic) { throw 'no connected network adapter (NetKVM driver missing?)' }

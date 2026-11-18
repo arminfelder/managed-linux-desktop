@@ -1,7 +1,10 @@
-# Fedora package names that the client installs: the kickstart %packages section and every pkg_install call
-# that can run on Fedora. No network.
-#   python3 -I tests/fedora-pkgs.py ROOT             prints "name<TAB>source" lines, exit 1 on a name it cannot resolve
-#   python3 -I tests/fedora-pkgs.py ROOT FIXTURE     exit 1 when a name is not in FIXTURE (tests/fixtures/fedora-pkgs.txt)
+"""List the Fedora package names that the client installs, and check them against a fixture. No network.
+
+The names come from the kickstart %packages section and from each pkg_install call that can run on Fedora.
+
+  python3 -I tests/fedora-pkgs.py ROOT          print "name<TAB>source" lines, exit 1 on a name it cannot resolve
+  python3 -I tests/fedora-pkgs.py ROOT FIXTURE  exit 1 when a name is not in FIXTURE (tests/fixtures/fedora-pkgs.txt)
+"""
 import os
 import re
 import sys
@@ -60,8 +63,7 @@ def functions(lines):
     return out
 
 
-def shell_packages(root):
-    out, bad = [], []
+def read_scripts(root):
     files = []
     for dp, _, fs in os.walk(os.path.join(root, "client", "mld")):
         files += [os.path.join(dp, f) for f in fs if f.endswith(".sh")]
@@ -69,61 +71,84 @@ def shell_packages(root):
     for p in sorted(files):
         with open(p) as f:
             texts[p] = f.read().split("\n")
-    # A function whose callers all run only on Ubuntu is Ubuntu-only too.
-    ubu = {p: ubuntu_lines(t) for p, t in texts.items()}
-    funcs = {}
-    for p, t in texts.items():
-        for name, rng in functions(t).items():
-            funcs[name] = (p, rng)
-    ubuntu_only = set()
+    return texts
+
+
+def ubuntu_only_functions(texts, ubu, funcs):
+    """A function whose callers all run only on Ubuntu is Ubuntu-only too."""
+    out = set()
     for name, (p, (a, b)) in funcs.items():
         calls = [(q, i) for q, t in texts.items() for i, l in enumerate(t)
                  if re.search(r"(^|[^A-Za-z0-9_-])%s([^A-Za-z0-9_(-]|$)" % re.escape(name), l)
                  and not (q == p and a <= i <= b) and not l.lstrip().startswith("#")]
         if calls and all(i in ubu[q] for q, i in calls):
-            ubuntu_only.add(name)
+            out.add(name)
+    return out
+
+
+def join_lines(t):
+    """(first line number, logical line): backslash continuations and array values joined."""
+    joined = []
+    i = 0
+    while i < len(t):
+        start, line = i, t[i]
+        while line.endswith("\\") and i + 1 < len(t):
+            i += 1
+            line = line[:-1] + " " + t[i]
+        # Array values can go on over lines up to the closing parenthesis.
+        m = re.search(r"\b([A-Z_][A-Z0-9_]*)=\(([^)]*)$", line)
+        while m and i + 1 < len(t):
+            i += 1
+            line += " " + t[i]
+            m = re.search(r"\b([A-Z_][A-Z0-9_]*)=\(([^)]*)$", line)
+        joined.append((start, line))
+        i += 1
+    return joined
+
+
+def call_words(words, src, arrays, out, bad):
+    """Add the package names of one pkg_install call to out, and the words it cannot resolve to bad."""
+    for w in words:
+        if w.startswith("#"):
+            break
+        a = re.fullmatch(r'"?\$\{([A-Z_][A-Z0-9_]*)\[@\]\}"?', w)
+        if a and a.group(1) in arrays:
+            out += [(x, src) for x in arrays[a.group(1)]]
+        elif NAME.fullmatch(w):
+            out.append((w, src))
+        else:
+            bad.append("%s: cannot resolve %s" % (src, w))
+
+
+def file_packages(rel, joined, skip, out, bad):
+    arrays = {}
+    for start, line in joined:
+        if start in skip:
+            continue
+        for m in re.finditer(r"\b([A-Z_][A-Z0-9_]*)=\(([^)]*)\)", line):
+            arrays.setdefault(m.group(1), []).extend(m.group(2).split())
+    for start, line in joined:
+        if start in skip or line.lstrip().startswith("#"):
+            continue
+        for m in re.finditer(r"(?:^|[\s;&|(])pkg_install\s+([^;&|)\n]+)", line):
+            call_words(m.group(1).split(), "%s:%d" % (rel, start + 1), arrays, out, bad)
+
+
+def shell_packages(root):
+    out, bad = [], []
+    texts = read_scripts(root)
+    ubu = {p: ubuntu_lines(t) for p, t in texts.items()}
+    funcs = {}
     for p, t in texts.items():
-        rel = os.path.relpath(p, root)
+        for name, rng in functions(t).items():
+            funcs[name] = (p, rng)
+    ubuntu_only = ubuntu_only_functions(texts, ubu, funcs)
+    for p, t in texts.items():
         skip = set(ubu[p])
         for name, (q, (a, b)) in funcs.items():
             if q == p and name in ubuntu_only:
                 skip.update(range(a, b + 1))
-        arrays = {}
-        joined = []
-        i = 0
-        while i < len(t):
-            start, line = i, t[i]
-            while line.endswith("\\") and i + 1 < len(t):
-                i += 1
-                line = line[:-1] + " " + t[i]
-            # Array values can go on over lines up to the closing parenthesis.
-            m = re.search(r"\b([A-Z_][A-Z0-9_]*)=\(([^)]*)$", line)
-            while m and i + 1 < len(t):
-                i += 1
-                line += " " + t[i]
-                m = re.search(r"\b([A-Z_][A-Z0-9_]*)=\(([^)]*)$", line)
-            joined.append((start, line))
-            i += 1
-        for start, line in joined:
-            if start in skip:
-                continue
-            for m in re.finditer(r"\b([A-Z_][A-Z0-9_]*)=\(([^)]*)\)", line):
-                arrays.setdefault(m.group(1), []).extend(m.group(2).split())
-        for start, line in joined:
-            if start in skip or line.lstrip().startswith("#"):
-                continue
-            for m in re.finditer(r"(?:^|[\s;&|(])pkg_install\s+([^;&|)\n]+)", line):
-                src = "%s:%d" % (rel, start + 1)
-                for w in m.group(1).split():
-                    if w.startswith("#"):
-                        break
-                    a = re.fullmatch(r'"?\$\{([A-Z_][A-Z0-9_]*)\[@\]\}"?', w)
-                    if a and a.group(1) in arrays:
-                        out += [(x, src) for x in arrays[a.group(1)]]
-                    elif NAME.fullmatch(w):
-                        out.append((w, src))
-                    else:
-                        bad.append("%s: cannot resolve %s" % (src, w))
+        file_packages(os.path.relpath(p, root), join_lines(t), skip, out, bad)
     return out, bad
 
 

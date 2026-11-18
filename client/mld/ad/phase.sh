@@ -95,7 +95,9 @@ phase_join() {
     ubuntu) pkg_install samba-common-bin ;;
     fedora) pkg_install samba-common-tools ;;
     esac
-    [ -s "$blob" ] || fail "no offline join blob $blob. Make one with djoin /provision (build.sh client odj $(hostname -s)), then run: sudo mld-firstboot join FILE"
+    [ -s "$blob" ] \
+        || fail "no offline join blob $blob. Make one with djoin /provision (build.sh client odj $(hostname -s))," \
+                "then run: sudo mld-firstboot join FILE"
     net offlinejoin requestodj loadfile="$blob" -s "$conf" \
         || fail "net offlinejoin requestodj failed (blob for an other computer name than $(hostname -s)?)"
     net ads keytab create -s "$conf" --option='kerberos method=secrets and keytab' || fail "keytab not made"

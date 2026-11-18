@@ -1,6 +1,8 @@
 # shellcheck shell=bash
 # Login: PAM with the CIFS home (pam_mount) or a local home, sshd.
 # Sourced by mld-firstboot (client/mld/firstboot.sh): phase, fail, CFG, STATE and the config.env values are set.
+# The awk programs of pam_enable_mount have long lines. A comment in a quoted awk program would change the program.
+# lint: disable-file=line-length
 
 # Fedora: pam_mount goes into a custom authselect profile based on sssd. authselect has no pam_mount feature.
 # auth: before the pam_usertype guard of pam_sss. pam_sss is sufficient, so a line after it never runs for AD users,

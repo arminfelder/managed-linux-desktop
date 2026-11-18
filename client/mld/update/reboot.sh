@@ -33,7 +33,8 @@ for s in $(loginctl list-sessions --no-legend | awk '{ print $1 }'); do
     exit 0
 done
 if [ "$CLIENT_DISTRO" = ubuntu ]; then
-    echo "reboot required by: $(tr '\n' ' ' < /run/reboot-required.pkgs 2>/dev/null || true)- no user session, reboot now"
+    echo "reboot required by: $(tr '\n' ' ' < /run/reboot-required.pkgs 2>/dev/null || true)-" \
+        "no user session, reboot now"
 else
     echo "reboot required by package updates - no user session, reboot now"
 fi

@@ -5,6 +5,7 @@
 report() {
     local ok="$1" bad="$2"; shift 2
     if "$@" >/dev/null 2>&1; then printf '  ok      %s\n' "$ok"
+    # lint: disable=sh-local (missing is the variable of cmd_check: dynamic scope)
     else printf '  MISSING %s\n' "$bad"; missing=1; fi
 }
 
@@ -27,7 +28,8 @@ cmd_check() {
             "virt-fw-vars (UKI=1, package python3-virt-firmware or pip install virt-firmware)" command -v virt-fw-vars
     fi
     if [ "${UKI:-0}" = 1 ] && [ "$UKI_TRUST" = mok ]; then
-        report "mokutil (UKI_TRUST=mok: MOK password hash)" "mokutil (UKI_TRUST=mok, package mokutil)" command -v mokutil
+        report "mokutil (UKI_TRUST=mok: MOK password hash)" "mokutil (UKI_TRUST=mok, package mokutil)" \
+            command -v mokutil
     fi
     report swtpm "swtpm (package swtpm-tools)" command -v swtpm
     report "libvirt network $NET (active)" "libvirt network $NET or not active  (./build.sh net)" net_active

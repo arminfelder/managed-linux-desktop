@@ -13,8 +13,11 @@ New-Item -ItemType Directory -Force $dir | Out-Null
 $file = Join-Path $dir "$Machine.txt"
 $old = Get-ADComputer -Filter "Name -eq '$Machine'"
 if ($old) {
-    if ($Replace -ne '1') { throw "computer account $Machine exists ($($old.DistinguishedName)). To make a new one: client odj --replace" }
-    if ($old.DistinguishedName -notlike "*,$ou") { throw "computer account $Machine is not in $ou ($($old.DistinguishedName)): not deleted" }
+    $oldDn = $old.DistinguishedName
+    if ($Replace -ne '1') {
+        throw "computer account $Machine exists ($oldDn). To make a new one: client odj --replace"
+    }
+    if ($oldDn -notlike "*,$ou") { throw "computer account $Machine is not in $ou ($oldDn): not deleted" }
     Remove-ADObject -Identity $old.DistinguishedName -Recursive -Confirm:$false
     Write-Warning "deleted the old computer account $($old.DistinguishedName)"
 }

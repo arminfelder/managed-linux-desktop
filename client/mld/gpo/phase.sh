@@ -4,7 +4,8 @@
 
 phase_gpo() {
     phase gpo
-    # samba-dsdb-modules (Fedora: samba-ldb-ldap-modules) has the ldb backend ildap. Without it, ldap:// uses the plain OpenLDAP module from libldb2:
+    # samba-dsdb-modules (Fedora: samba-ldb-ldap-modules) has the ldb backend ildap.
+    # Without it, ldap:// uses the plain OpenLDAP module from libldb2:
     # no bind with the machine credentials, and samba-gpupdate fails ("a successful bind must be completed").
     case "$CLIENT_DISTRO" in
     ubuntu) pkg_install python3-samba samba-dsdb-modules ;;

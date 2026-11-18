@@ -1,5 +1,6 @@
 #!/bin/bash
 # Prints the AVC lines since boot that no regex in avc-ignore.list matches. No events: no output, exit 0.
+set -euo pipefail
 IGNORE="${AVC_IGNORE:-/etc/mld/selinux/avc-ignore.list}"
 pat=$(mktemp)
 trap 'rm -f "$pat"' EXIT

@@ -23,7 +23,9 @@ phase_browsers() {
         rpm --import /etc/pki/rpm-gpg/mld-google-chrome.asc
         if grep -qsx '\[google-chrome\]' /usr/share/dnf5/repos.d/google-chrome.repo; then
             # Our file would be a second repo with the same id. Its key URL is the renewal path for a new Google key.
-            if cmp -s "$CFG/apps/google-chrome.repo" /etc/yum.repos.d/google-chrome.repo; then rm -f /etc/yum.repos.d/google-chrome.repo; fi
+            if cmp -s "$CFG/apps/google-chrome.repo" /etc/yum.repos.d/google-chrome.repo; then
+                rm -f /etc/yum.repos.d/google-chrome.repo
+            fi
             pkg_install dnf5-plugins
             dnf config-manager setopt google-chrome.enabled=1
         elif [ ! -e /etc/yum.repos.d/google-chrome.repo ]; then

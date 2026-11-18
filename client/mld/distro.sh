@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Sourced by firstboot.sh and by guest snippets. Every function returns 0 on a normal path (set -e, ERR trap).
 # Clients built before CLIENT_DISTRO existed have no value in config.env: they are Ubuntu.
 CLIENT_DISTRO="${CLIENT_DISTRO:-ubuntu}"

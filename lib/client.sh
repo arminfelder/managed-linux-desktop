@@ -112,23 +112,31 @@ hw_stage_files() {
     mkdir -p "$h/mld" "$h/odj"
     render_client_templates "$h/mld"
     brand_stage
-    while read -r src _ _; do mkdir -p "$h/mld/$(dirname "$src")"; cp "$(client_src "$src")" "$h/mld/$src"; done < <(install_list)
+    while read -r src _ _; do
+        mkdir -p "$h/mld/$(dirname "$src")"
+        cp "$(client_src "$src")" "$h/mld/$src"
+    done < <(install_list)
     install_list_file > "$h/mld/install.list"
     {
-        for v in $(idp_vars DOMAIN REALM DC_FQDN DC_IP LINUX_OU PROBE_USER CLIENT_DISTRO ENROLL_TPM2 TPM2_PCRS UKI UKI_TRUST CIFS_HOME SNX_RS MACHINE_TOKEN_PIN CLIENT_DE CLIENT_ADMIN BRAND_BG CA_NAME PKI_ENROLL LINUX_GROUP DOMAIN_DN); do
+        for v in $(idp_vars DOMAIN REALM DC_FQDN DC_IP LINUX_OU PROBE_USER CLIENT_DISTRO ENROLL_TPM2 TPM2_PCRS UKI \
+                UKI_TRUST CIFS_HOME SNX_RS MACHINE_TOKEN_PIN CLIENT_DE CLIENT_ADMIN BRAND_BG CA_NAME PKI_ENROLL \
+                LINUX_GROUP DOMAIN_DN); do
             printf '%s=%q\n' "$v" "${!v:-}"
         done
         echo CLIENT_TARGET=hw
     } > "$h/mld/config.env"
+    # The n of the caller (client_hw_iso) gets the count, so n is not local here. lint: disable=sh-local
     n=0
     for f in "$STAGE"/odj/*.txt; do [ -e "$f" ] || continue; cp "$f" "$h/odj/"; n=$((n + 1)); done
-    [ "$n" -gt 0 ] || warn "no offline join blobs in $STAGE/odj: each device needs mld-firstboot join FILE (or: client odj NAME, then hw-iso again)"
+    local hint="each device needs mld-firstboot join FILE (or: client odj NAME, then hw-iso again)"
+    [ "$n" -gt 0 ] || warn "no offline join blobs in $STAGE/odj: $hint"
 }
 
 client_hw_iso() {
     # The hardware image carries offline join blobs (AD). A FreeIPA join needs a one-time password per device.
     [ "$IDP" = windows ] || die "client hw-iso: IDP=windows only (no FreeIPA join for real hardware yet)"
-    [ "${UKI:-0}" != 1 ] || [ "$UKI_TRUST" = mok ] || die "real hardware has the vendor keys: use UKI=0 or UKI_TRUST=mok"
+    [ "${UKI:-0}" != 1 ] || [ "$UKI_TRUST" = mok ] \
+        || die "real hardware has the vendor keys: use UKI=0 or UKI_TRUST=mok"
     local h="$STAGE/hw" n
     rm -rf "$h"
     if [ "$CLIENT_DISTRO" = fedora ]; then
@@ -140,7 +148,8 @@ client_hw_iso() {
     fi
     chmod 600 "$STAGE/mld-hw.iso"
     rm -rf "$h"
-    log "$STAGE/mld-hw.iso ready: $n offline join blob(s). Write it to a USB stick (dd bs=4M of=/dev/sdX). The blobs are secrets."
+    log "$STAGE/mld-hw.iso ready: $n offline join blob(s)." \
+        "Write it to a USB stick (dd bs=4M of=/dev/sdX). The blobs are secrets."
 }
 
 client_hw_iso_ubuntu() {
@@ -180,8 +189,8 @@ sb_keys() {
     log "lab Secure Boot key made: $STAGE/sb/db.crt"
 }
 
-# Writes the client NVRAM (qcow2). With UKI=1 and UKI_TRUST=db, the lab certificate goes into db, next to the Microsoft keys.
-# UKI_TRUST=mok keeps the Microsoft keys only.
+# Writes the client NVRAM (qcow2). With UKI=1 and UKI_TRUST=db, the lab certificate goes into db, next to the
+# Microsoft keys. UKI_TRUST=mok keeps the Microsoft keys only.
 client_nvram() {
     local nv="$1" src="$OVMF_VARS"
     if [ "${UKI:-0}" = 1 ] && [ "$UKI_TRUST" = db ]; then
@@ -204,7 +213,8 @@ odj_provision() {
     mkdir -p "$STAGE/odj"; chmod 700 "$STAGE/odj"
     f="$STAGE/odj/$name.txt"
     dc_ready
-    b64=$(guest_run dc dc/guest/odj-provision.ps1 "Machine=$name" "Replace=${REPLACE:-0}" | tr -d '\r\n') || die "djoin /provision $name failed"
+    b64=$(guest_run dc dc/guest/odj-provision.ps1 "Machine=$name" "Replace=${REPLACE:-0}" | tr -d '\r\n') \
+        || die "djoin /provision $name failed"
     [ -n "$b64" ] || die "the DC returned no blob for $name"
     ( umask 077; base64 -d <<<"$b64" > "$f" ) || die "the blob for $name is not base64"
     log "offline join blob for $name: $f (secret: the password of the computer account)"
@@ -240,13 +250,17 @@ client_iso() {
     else
         render client/user-data.tmpl "$c/user-data" yaml
         idp_install_file "$c/user-data" yaml
-        printf 'instance-id: %s-%s\nlocal-hostname: %s\n' "$CLIENT_VM" "$(date -u +%s)" "$CLIENT_HOSTNAME" > "$c/meta-data"
+        printf 'instance-id: %s-%s\nlocal-hostname: %s\n' "$CLIENT_VM" "$(date -u +%s)" "$CLIENT_HOSTNAME" \
+            > "$c/meta-data"
     fi
 
     render_client_templates "$c/mld"
     brand_stage
     local src
-    while read -r src _ _; do mkdir -p "$c/mld/$(dirname "$src")"; cp "$(client_src "$src")" "$c/mld/$src"; done < <(install_list)
+    while read -r src _ _; do
+        mkdir -p "$c/mld/$(dirname "$src")"
+        cp "$(client_src "$src")" "$c/mld/$src"
+    done < <(install_list)
     install_list_file > "$c/mld/install.list"
     if [ "${UKI:-0}" = 1 ]; then
         sb_keys
@@ -255,7 +269,9 @@ client_iso() {
     fi
     {
         local v
-        for v in $(idp_vars DOMAIN REALM DC_FQDN DC_IP JOIN_USER LINUX_OU PROBE_USER ENROLL_TPM2 TPM2_PCRS UKI UKI_TRUST CIFS_HOME SNX_RS MACHINE_TOKEN_PIN CLIENT_DE CLIENT_ADMIN BRAND_BG CA_NAME PKI_ENROLL LINUX_GROUP DOMAIN_DN CLIENT_DISTRO); do
+        for v in $(idp_vars DOMAIN REALM DC_FQDN DC_IP JOIN_USER LINUX_OU PROBE_USER ENROLL_TPM2 TPM2_PCRS UKI \
+                UKI_TRUST CIFS_HOME SNX_RS MACHINE_TOKEN_PIN CLIENT_DE CLIENT_ADMIN BRAND_BG CA_NAME PKI_ENROLL \
+                LINUX_GROUP DOMAIN_DN CLIENT_DISTRO); do
             printf '%s=%q\n' "$v" "${!v:-}"
         done
     } > "$c/mld/config.env"
@@ -297,8 +313,8 @@ client_iso_ubuntu_remaster() {
     log "ubuntu-autoinstall.iso ready"
 }
 
-# fedora_grub_patch ISO LABEL SUFFIX: patched grub.cfg of the ISO9660 tree in $STAGE/fedora-grub-{EFI_BOOT,boot_grub2}.cfg.
-# SUFFIX goes to the end of each kernel line.
+# fedora_grub_patch ISO LABEL SUFFIX: patched grub.cfg of the ISO9660 tree in
+# $STAGE/fedora-grub-{EFI_BOOT,boot_grub2}.cfg. SUFFIX goes to the end of each kernel line.
 fedora_grub_patch() {
     local f o
     rm -f "$STAGE"/fedora-grub-*
@@ -308,7 +324,8 @@ fedora_grub_patch() {
         [ -f "$o.orig" ] || die "no /$f/grub.cfg in $(basename "$1"): the ISO layout changed"
         chmod u+w "$o.orig"
         fedora_grub_sed "$3" < "$o.orig" > "$o.cfg"
-        grep -q "inst.ks=hd:LABEL=$2:/ks.cfg" "$o.cfg" || die "no images/pxeboot/vmlinuz entry in grub.cfg: the ISO layout changed"
+        grep -q "inst.ks=hd:LABEL=$2:/ks.cfg" "$o.cfg" \
+            || die "no images/pxeboot/vmlinuz entry in grub.cfg: the ISO layout changed"
     done
 }
 
@@ -342,9 +359,11 @@ fedora_efiboot_patch() {
     if [[ "$e" =~ appended_partition_([0-9]+)_ ]]; then
         n=${BASH_REMATCH[1]}
         line=$(grep "^-append_partition $n " <<<"$rep")
-        [[ "$line" =~ --interval:local_fs:([0-9]+)d-([0-9]+)d:: ]] || die "appended partition $n: no interval in the xorriso report"
+        [[ "$line" =~ --interval:local_fs:([0-9]+)d-([0-9]+)d:: ]] \
+            || die "appended partition $n: no interval in the xorriso report"
         s=${BASH_REMATCH[1]}; e2=${BASH_REMATCH[2]}
-        dd if="$iso" of="$o" bs=512 skip="$s" count=$((e2 - s + 1)) status=none || die "could not read appended partition $n"
+        dd if="$iso" of="$o" bs=512 skip="$s" count=$((e2 - s + 1)) status=none \
+            || die "could not read appended partition $n"
         FEDORA_EFI_ARGS=(-append_partition "$n" "$(awk '{ print $3 }' <<<"$line")" "$o")
     else
         xorriso -osirrox on -indev "$iso" -extract "$e" "$o" 2>/dev/null
@@ -352,8 +371,10 @@ fedora_efiboot_patch() {
     fi
     chmod u+w "$o"
     mtype -i "$o" ::/EFI/BOOT/grub.cfg 2>/dev/null | fedora_grub_sed "$2" > "$STAGE/fedora-efi-grub.cfg"
-    grep -q 'inst.ks=' "$STAGE/fedora-efi-grub.cfg" || die "no kernel entry in the EFI image EFI/BOOT/grub.cfg: the ISO layout changed"
-    mcopy -o -i "$o" "$STAGE/fedora-efi-grub.cfg" ::/EFI/BOOT/grub.cfg || die "could not write grub.cfg into the EFI image"
+    grep -q 'inst.ks=' "$STAGE/fedora-efi-grub.cfg" \
+        || die "no kernel entry in the EFI image EFI/BOOT/grub.cfg: the ISO layout changed"
+    mcopy -o -i "$o" "$STAGE/fedora-efi-grub.cfg" ::/EFI/BOOT/grub.cfg \
+        || die "could not write grub.cfg into the EFI image"
 }
 
 client_hw_iso_fedora() {
@@ -383,7 +404,8 @@ client_hw_iso_fedora() {
         -map "$h/ks.cfg" /ks.cfg -map "$h/mld" /mld -map "$h/odj" /odj \
         -boot_image any replay "${FEDORA_EFI_ARGS[@]}" >"$log" 2>&1 || { tail -n 5 "$log" >&2; die "xorriso failed"; }
     ! grep -qE 'SORRY|FAILURE' "$log" || { grep -E 'SORRY|FAILURE' "$log" >&2; die "xorriso reported a problem: $log"; }
-    xorriso -indev "$STAGE/mld-hw.iso" -report_el_torito plain 2>/dev/null | grep -q ' UEFI ' || die "the hardware ISO has no UEFI El Torito entry"
+    xorriso -indev "$STAGE/mld-hw.iso" -report_el_torito plain 2>/dev/null | grep -q ' UEFI ' \
+        || die "the hardware ISO has no UEFI El Torito entry"
     rm -f "$log"
 }
 
@@ -451,7 +473,8 @@ client_console() {
 client_start() {
     require_qemu_access
     need_secrets LUKS_PASSPHRASE
-    "${VIRSH[@]}" domstate "$CLIENT_VM" | grep -q 'shut off' || die "$CLIENT_VM is not shut off: use ./build.sh client unlock"
+    "${VIRSH[@]}" domstate "$CLIENT_VM" | grep -q 'shut off' \
+        || die "$CLIENT_VM is not shut off: use ./build.sh client unlock"
     log "booting $CLIENT_VM and typing the passphrase on the serial console (log: .stage/client-console.log)"
     client_console unlock start || die "unlock failed. Read .stage/client-console.log"
 }
@@ -477,7 +500,10 @@ client_wait() {
                 client_log 40 || true
                 die "fix the cause, then run /usr/local/sbin/mld-firstboot in the guest again, or destroy + vm"
             fi
-            if [ -n "$(json_get "done" <<<"$s")" ]; then log "client first boot DONE at $(json_get "done" <<<"$s")"; return 0; fi
+            if [ -n "$(json_get "done" <<<"$s")" ]; then
+                log "client first boot DONE at $(json_get "done" <<<"$s")"
+                return 0
+            fi
             phase=$(json_get phase <<<"$s")
             if [ "$phase" != "$last" ]; then printf '\n'; log "phase ${phase:-<not started>}"; last="$phase"; fi
         fi
@@ -530,7 +556,8 @@ EOF" || die "mokutil --import failed in the guest"
         client_reboot_console expect-prompt || die "boot through shim + UKI failed. Read .stage/client-console.log"
         facts=$(client_boot_facts) || die "cannot query the guest"
         grep -qx 'uki_booted=yes' <<<"$facts" || die "the boot did not come from the UKI: $(tr '\n' ' ' <<<"$facts")"
-        grep -q '^boot_entry=MLD UKI (shim) ' <<<"$facts" || die "BootCurrent is not 'MLD UKI (shim) <kernel>': $(tr '\n' ' ' <<<"$facts")"
+        grep -q '^boot_entry=MLD UKI (shim) ' <<<"$facts" \
+            || die "BootCurrent is not 'MLD UKI (shim) <kernel>': $(tr '\n' ' ' <<<"$facts")"
     fi
     log "booted: shim -> UKI ($(tr '\n' ' ' <<<"$facts"))"
     if [ "${ENROLL_TPM2:-0}" = 1 ] && ./guest-exec.sh client 'test -f /var/lib/mld/tpm2.done' >/dev/null 2>&1; then
@@ -543,7 +570,8 @@ EOF" || die "mokutil --import failed in the guest"
 }
 
 client_fido2_attach() {
-    [[ "${FIDO2_HOSTDEV:-}" =~ ^([0-9a-fA-F]{4}):([0-9a-fA-F]{4})$ ]] || die "FIDO2_HOSTDEV must be vendor:product, for example 1050:0407"
+    [[ "${FIDO2_HOSTDEV:-}" =~ ^([0-9a-fA-F]{4}):([0-9a-fA-F]{4})$ ]] \
+        || die "FIDO2_HOSTDEV must be vendor:product, for example 1050:0407"
     local xml="$STAGE/fido2-hostdev.xml" flags=(--config)
     cat > "$xml" <<EOF
 <hostdev mode='subsystem' type='usb' managed='yes'>
@@ -574,12 +602,15 @@ client_enroll_fido2() {
     log "FIDO2 enrolled. Test with: ./build.sh client reboot-test"
 }
 
-# Pushes the files in client/mld/install.list, the rendered templates and the current config.env values, then runs first boot again.
+# Pushes the files in client/mld/install.list, the rendered templates and the current config.env values, then runs
+# first boot again.
 # The phases are idempotent: done phases are skipped through their marker files.
 client_check_distro() {
     local id
-    id=$(guest_run client client/guest/os-id.sh | sed -n 's/^ID=//p' | tr -d '\r"') || die "could not read /etc/os-release in $CLIENT_VM"
-    [ "$id" = "$CLIENT_DISTRO" ] || die "$CLIENT_VM runs ${id:-an unknown OS}, lab.env has CLIENT_DISTRO=$CLIENT_DISTRO: build the client again"
+    id=$(guest_run client client/guest/os-id.sh | sed -n 's/^ID=//p' | tr -d '\r"') \
+        || die "could not read /etc/os-release in $CLIENT_VM"
+    [ "$id" = "$CLIENT_DISTRO" ] \
+        || die "$CLIENT_VM runs ${id:-an unknown OS}, lab.env has CLIENT_DISTRO=$CLIENT_DISTRO: build the client again"
 }
 
 client_resume() {
@@ -590,7 +621,8 @@ client_resume() {
     snippet=$head
     brand_stage
     while read -r src dst mode; do
-        snippet+=$'\n'"mkdir -p /etc/mld/$(dirname "$src"); echo '$(base64 -w0 "$(client_src "$src")")' | base64 -d > /etc/mld/$src"
+        snippet+=$'\n'"mkdir -p /etc/mld/$(dirname "$src"); "
+        snippet+="echo '$(base64 -w0 "$(client_src "$src")")' | base64 -d > /etc/mld/$src"
         [ "$dst" = - ] || snippet+=$'\n'"install -D -m $mode /etc/mld/$src $dst"
         # The snippet goes to virsh as one argument, base64 encoded again. Linux limits one argument to 128 KiB.
         if [ "${#snippet}" -gt 60000 ]; then
@@ -601,15 +633,19 @@ client_resume() {
     local tdir t
     tdir=$(mktemp -d); render_client_templates "$tdir"
     for t in $CLIENT_TEMPLATES; do
-        snippet+=$'\n'"mkdir -p /etc/mld/$(dirname "${t%%:*}"); echo '$(base64 -w0 "$tdir/${t%%:*}")' | base64 -d > /etc/mld/${t%%:*}; chmod 600 /etc/mld/${t%%:*}"
+        snippet+=$'\n'"mkdir -p /etc/mld/$(dirname "${t%%:*}"); "
+        snippet+="echo '$(base64 -w0 "$tdir/${t%%:*}")' | base64 -d > /etc/mld/${t%%:*}; chmod 600 /etc/mld/${t%%:*}"
     done
     rm -rf "$tdir"
     # For phase_admin_pw: a client from before the fix has an empty admin password (cloud-init passwd -d).
     hash=$(openssl passwd -6 -stdin <<<"$CLIENT_ADMIN_PW")
-    snippet+=$'\n'"echo '$(printf '%s' "$hash" | base64 -w0)' | base64 -d > /etc/mld/admin-hash; chmod 600 /etc/mld/admin-hash"
+    snippet+=$'\n'"echo '$(printf '%s' "$hash" | base64 -w0)' | base64 -d > /etc/mld/admin-hash; "
+    snippet+="chmod 600 /etc/mld/admin-hash"
     snippet+=$'\n'"systemctl daemon-reload"
-    for v in $(idp_vars CLIENT_DISTRO DC_IP CIFS_HOME SNX_RS MACHINE_TOKEN_PIN CLIENT_DE CLIENT_ADMIN BRAND_BG CA_NAME PKI_ENROLL LINUX_GROUP DOMAIN_DN UKI_TRUST); do
-        snippet+=$'\n'"sed -i '/^$v=/d' /etc/mld/config.env; printf '%s\\n' $(printf '%q' "$v=${!v:-}") >> /etc/mld/config.env"
+    for v in $(idp_vars CLIENT_DISTRO DC_IP CIFS_HOME SNX_RS MACHINE_TOKEN_PIN CLIENT_DE CLIENT_ADMIN BRAND_BG CA_NAME \
+            PKI_ENROLL LINUX_GROUP DOMAIN_DN UKI_TRUST); do
+        snippet+=$'\n'"sed -i '/^$v=/d' /etc/mld/config.env; "
+        snippet+="printf '%s\\n' $(printf '%q' "$v=${!v:-}") >> /etc/mld/config.env"
     done
     # Done phases are skipped by their markers. DONE goes too, so changed settings are applied.
     snippet+=$'\n'"rm -f /var/lib/mld/FAILED /var/lib/mld/DONE
@@ -622,7 +658,8 @@ echo 'mld-firstboot restarted'"
 
 # For a client made before the qcow2 NVRAM change. The VM must be shut off. Needs sudo: libvirt owns the old NVRAM.
 client_nvram_qcow2() {
-    "${VIRSH[@]}" domstate "$CLIENT_VM" | grep -q 'shut off' || die "shut down $CLIENT_VM first: virsh shutdown $CLIENT_VM"
+    "${VIRSH[@]}" domstate "$CLIENT_VM" | grep -q 'shut off' \
+        || die "shut down $CLIENT_VM first: virsh shutdown $CLIENT_VM"
     local xml old nv="$POOL_DIR/${CLIENT_VM}_VARS.qcow2"
     xml=$("${VIRSH[@]}" dumpxml --inactive "$CLIENT_VM")
     old=$(sed -n 's:.*<nvram[^>]*>\(.*\)</nvram>.*:\1:p' <<<"$xml" | head -1)

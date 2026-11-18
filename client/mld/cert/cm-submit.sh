@@ -7,6 +7,8 @@
 # Protocol (certmonger submit helper): $CERTMONGER_OPERATION selects the operation, the CSR is in
 # $CERTMONGER_CSR, the template in $CERTMONGER_CA_PROFILE. Exit: 0 issued (PEM on stdout), 2 rejected,
 # 3 CA unreachable, 5 wait (delay on stdout), 6 operation not supported.
+# No set -e: the helper maps the exit code of mld-cert to the certmonger codes itself.
+# lint: disable-file=sh-strict-mode
 set -uo pipefail
 
 who="${1:-machine}" how="${2:-web}"
@@ -22,7 +24,8 @@ case "${CERTMONGER_OPERATION:-SUBMIT}" in
         . /etc/mld-cert.conf
         CLIENT_DISTRO=${CLIENT_DISTRO:-ubuntu}
         if [ -z "${CA_ANCHOR_DIR:-}" ]; then
-            [ "$CLIENT_DISTRO" = ubuntu ] || { echo "CA_ANCHOR_DIR missing in /etc/mld-cert.conf: run ./build.sh client resume" >&2; exit 3; }
+            [ "$CLIENT_DISTRO" = ubuntu ] \
+                || { echo "CA_ANCHOR_DIR missing in /etc/mld-cert.conf: run ./build.sh client resume" >&2; exit 3; }
             CA_ANCHOR_DIR=/usr/local/share/ca-certificates/mld CA_ANCHOR_PREFIX=
         fi
         n=0

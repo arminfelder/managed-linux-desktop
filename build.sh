@@ -92,7 +92,7 @@ cmd_client() {
     case "$sub" in
         iso) client_iso ;;
         hw-iso) client_hw_iso ;;
-        odj) local rep=0; [ "${1:-}" != --replace ] || { rep=1; shift; }
+        odj) local rep=0 n; [ "${1:-}" != --replace ] || { rep=1; shift; }
              [ $# -ge 1 ] || die "usage: client odj [--replace] NAME [NAME ...]"
              for n in "$@"; do REPLACE=$rep odj_provision "$n"; done ;;
         vm) client_vm ;;
@@ -113,7 +113,8 @@ cmd_client() {
         enroll-fido2) client_enroll_fido2 ;;
         screenshot) screenshot_vm "$CLIENT_VM" "${1:-$STAGE/client-console.png}" ;;
         installer-diag)
-              # Types commands into the installer shell on VT2, then takes a screenshot. Default: what downloads, what runs.
+              # Types commands into the installer shell on VT2, then takes a screenshot.
+              # Default: what downloads, what runs.
               local u="$LIBVIRT_URI" k="$HERE/lib/sendkeys.py" c
               [ $# -gt 0 ] || set -- "clear" "sudo ss -tnp | grep -v 127.0 | cut -c50-200 | head -6" \
                   "ps -eo etime,args --sort=-pcpu | head -6 | cut -c1-150" "ls /var/log/installer"
@@ -178,7 +179,8 @@ cmd_setup() {
     # A file with a pinned sum that does not match stops the setup.
     local before; before=$(cat "$HERE/checksums.sha256" 2>/dev/null)
     pin_media
-    [ "$before" = "$(cat "$HERE/checksums.sha256" 2>/dev/null)" ] || warn "new sums in checksums.sha256: commit the file"
+    [ "$before" = "$(cat "$HERE/checksums.sha256" 2>/dev/null)" ] \
+        || warn "new sums in checksums.sha256: commit the file"
     verify_media || die "media not verified: do not use these files"
     log "2/4 libvirt network and pool"
     cmd_net

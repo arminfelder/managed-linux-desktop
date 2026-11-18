@@ -1,7 +1,8 @@
 #!/bin/bash
 # Runs as the user (systemd user unit mld-desktop.service). AD users only (UID from 200000, sssd ID mapping).
 # The CIFS home has file_mode=0600 and ignores chmod, so a launcher there cannot be executable.
-# The desktop starts a launcher only if it is executable (GNOME: also metadata::trusted). Thus the desktop folder is local.
+# The desktop starts a launcher only if it is executable (GNOME: also metadata::trusted).
+# Thus the desktop folder is local.
 set -euo pipefail
 uid=$(id -u)
 [ "$uid" -ge 200000 ] || exit 0

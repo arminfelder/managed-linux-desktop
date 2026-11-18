@@ -131,7 +131,8 @@ cmd_secure() {
     dev=$(luks_dev)
     if [[ " $open " == *" recovery-key "* || " $open " == *" tpm2 "* ]]; then
         read -rsp "LUKS passphrase of this disk: " pw </dev/tty; echo
-        printf '%s' "$pw" | cryptsetup open --test-passphrase "$dev" --key-file=- || { echo "wrong passphrase"; exit 1; }
+        printf '%s' "$pw" | cryptsetup open --test-passphrase "$dev" --key-file=- \
+            || { echo "wrong passphrase"; exit 1; }
     fi
     if [[ " $open " == *" recovery-key "* ]]; then
         echo "Recovery key (write it down now, keep it in a safe place; it is not stored on this device):"
@@ -143,7 +144,8 @@ cmd_secure() {
         /usr/local/sbin/mld-uki sync
         state=$(/usr/local/sbin/mld-uki mok-state)
         [ "$state" = pending ] || /usr/local/sbin/mld-uki mok-request
-        echo "Next: reboot. In the blue MokManager screen select Enroll MOK, Continue, Yes, type the MOK password, Reboot."
+        echo "Next: reboot. In the blue MokManager screen select Enroll MOK, Continue, Yes," \
+            "type the MOK password, Reboot."
         echo "Then run: sudo mld-firstboot secure"
         secure_motd; return 0
     fi
@@ -162,7 +164,8 @@ cmd_secure() {
 
 # A device without a blob from the install: copy the blob (djoin /provision on the DC), then join and continue.
 cmd_join() {
-    [ -s "${1:-}" ] || { echo "usage: mld-firstboot join FILE (offline domain join blob of this computer)" >&2; exit 2; }
+    [ -s "${1:-}" ] \
+        || { echo "usage: mld-firstboot join FILE (offline domain join blob of this computer)" >&2; exit 2; }
     install -m 600 "$1" "$CFG/odj.txt"
     rm -f "$STATE/FAILED"
     systemctl restart --no-block mld-firstboot.service

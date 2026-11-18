@@ -1,7 +1,8 @@
 # Phase 8: GPO "MLD Linux Clients" on OU=Computers,OU=Linux. The Linux clients apply it with samba-gpupdate.
 #   Chrome:  AuthServerAllowlist = *.<domain>           (Kerberos/Negotiate to the domain servers)
 #   Firefox: Authentication.SPNEGO = [.<domain>]        (the same for Firefox)
-#            SecurityDevices.Add.p11-kit-trust          (Firefox trusts the system store, with the AD CAs from mld-cert ca)
+#            SecurityDevices.Add.p11-kit-trust          (Firefox trusts the system store,
+#                                                        with the AD CAs from mld-cert ca)
 # The values go into Registry.pol directly (Set-GPRegistryValue). The Google and Mozilla ADMX files are only necessary
 # to show the settings by name in the GPMC editor.
 # Returns $false.
@@ -40,5 +41,7 @@ if (-not ((Get-GPInheritance -Target $ou).GpoLinks | Where-Object DisplayName -e
     New-GPLink -Name $name -Target $ou -LinkEnabled Yes | Out-Null
     Write-Host "GPO '$name' linked to $ou"
 }
-Write-Host "GPO '$name': version $((Get-GPO -Name $name).Computer.DSVersion), links: $(((Get-GPInheritance -Target $ou).GpoLinks.DisplayName) -join ', ')"
+$version = (Get-GPO -Name $name).Computer.DSVersion
+$links = ((Get-GPInheritance -Target $ou).GpoLinks.DisplayName) -join ', '
+Write-Host "GPO '$name': version $version, links: $links"
 return $false

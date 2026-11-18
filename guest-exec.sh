@@ -60,7 +60,8 @@ end=$(( $(date +%s) + timeout_s ))
 while [ "$(date +%s)" -lt "$end" ]; do
     out=$("${VIRSH[@]}" qemu-agent-command "$vm" \
           "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":$pid}}")
-    if printf '%s' "$out" | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)["return"]["exited"] else 1)'; then
+    if printf '%s' "$out" |
+        python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)["return"]["exited"] else 1)'; then
         printf '%s' "$out" | python3 -c '
 import json,sys,base64
 r = json.load(sys.stdin)["return"]

@@ -239,6 +239,26 @@ def kinit_machine():
     return host
 
 
+def not_qualified(t, sids, machine):
+    """The reasons why the template entry T does not qualify. Empty: it qualifies."""
+    flags = int(t.get("flags", [b"0"])[0]) & 0xFFFFFFFF
+    enroll_flags = int(t.get("mspki-enrollment-flag", [b"0"])[0]) & 0xFFFFFFFF
+    schema = int(t.get("mspki-template-schema-version", [b"1"])[0])
+    why = []
+    if machine and not flags & CT_FLAG_MACHINE_TYPE:
+        why.append("user template")
+    if not machine and flags & CT_FLAG_MACHINE_TYPE:
+        why.append("machine template")
+    if schema < 2:
+        why.append(f"schema {schema}")
+    if not enroll_flags & CT_FLAG_AUTO_ENROLLMENT:
+        why.append("no autoenroll flag")
+    got = rights(t["ntsecuritydescriptor"][0], sids) if "ntsecuritydescriptor" in t else set()
+    if not {"enroll", "autoenroll"} <= got:
+        why.append(f"rights {sorted(got) or 'none'}")
+    return why
+
+
 def qualifying_templates(c, account, machine=True):
     pks = f"CN=Public Key Services,CN=Services,CN=Configuration,{c['DOMAIN_DN']}"
     me = ldap(c, c["DOMAIN_DN"], "sub", f"(sAMAccountName={account})", ["objectSid"])
@@ -261,22 +281,7 @@ def qualifying_templates(c, account, machine=True):
                      sd=True)
         if not found:
             continue
-        t = found[0]
-        flags = int(t.get("flags", [b"0"])[0]) & 0xFFFFFFFF
-        enroll_flags = int(t.get("mspki-enrollment-flag", [b"0"])[0]) & 0xFFFFFFFF
-        schema = int(t.get("mspki-template-schema-version", [b"1"])[0])
-        why = []
-        if machine and not flags & CT_FLAG_MACHINE_TYPE:
-            why.append("user template")
-        if not machine and flags & CT_FLAG_MACHINE_TYPE:
-            why.append("machine template")
-        if schema < 2:
-            why.append(f"schema {schema}")
-        if not enroll_flags & CT_FLAG_AUTO_ENROLLMENT:
-            why.append("no autoenroll flag")
-        got = rights(t["ntsecuritydescriptor"][0], sids) if "ntsecuritydescriptor" in t else set()
-        if not {"enroll", "autoenroll"} <= got:
-            why.append(f"rights {sorted(got) or 'none'}")
+        why = not_qualified(found[0], sids, machine)
         print(f"  {'yes' if not why else 'no '}  {name}" + (f" ({', '.join(why)})" if why else ""))
         if not why:
             result.append(name)
@@ -380,7 +385,8 @@ def setup(p, who):
         relinked = link_to_device(p["home"], ".tpm2_pkcs11", p["store"])
         relinked |= link_to_device(p["home"], ".config/certmonger", f"{p['state']}/certmonger")
         if relinked:
-            # The session certmonger (D-Bus activated) keeps the old state directory open. The next getcert starts it again.
+            # The session certmonger (D-Bus activated) keeps the old state directory open.
+            # The next getcert starts it again.
             run(["pkill", "-u", str(os.getuid()), "-x", "certmonger"], check=False, quiet=True)
     os.makedirs(p["store"], mode=0o700, exist_ok=True)
     os.makedirs(os.path.dirname(p["pin"]), mode=0o700, exist_ok=True)

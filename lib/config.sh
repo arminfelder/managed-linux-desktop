@@ -49,7 +49,8 @@ case "$CLIENT_DISTRO/$CLIENT_DE" in
     ubuntu/gnome) CLIENT_DESKTOP=ubuntu-desktop-minimal CLIENT_DM=gdm3 CLIENT_DM_UNIT=gdm.service ;;
     ubuntu/kde) CLIENT_DESKTOP=kde-plasma-desktop CLIENT_DM=sddm CLIENT_DM_UNIT=sddm.service ;;
     fedora/gnome) CLIENT_DESKTOP=workstation-product-environment CLIENT_DM=gdm CLIENT_DM_UNIT=gdm.service ;;
-    fedora/kde) CLIENT_DESKTOP=kde-desktop-environment CLIENT_DM=plasma-login-manager CLIENT_DM_UNIT=plasmalogin.service ;;
+    fedora/kde) CLIENT_DESKTOP=kde-desktop-environment CLIENT_DM=plasma-login-manager \
+                CLIENT_DM_UNIT=plasmalogin.service ;;
 esac
 if [ "$CLIENT_DISTRO" = fedora ]; then
     CLIENT_ISO="$FEDORA_ISO" CLIENT_INSTALL_ISO="$STAGE/fedora-ks.iso"
@@ -62,7 +63,9 @@ MACHINE_TOKEN_PIN="${MACHINE_TOKEN_PIN:-mld-machine}"
 [[ "$MACHINE_TOKEN_PIN" =~ ^[A-Za-z0-9._-]+$ ]] || die "MACHINE_TOKEN_PIN: letters, digits, '.', '_' and '-' only"
 UKI_TRUST="${UKI_TRUST:-db}"
 [[ "$UKI_TRUST" =~ ^(db|mok)$ ]] || die "UKI_TRUST must be db or mok, not '$UKI_TRUST'"
-export IDP NFS_HOME HOME_MODE O365_APPS IDM_GROUP CA_NAME PKI_ENROLL CIFS_HOME SNX_RS CLIENT_DE BRAND_BG BRAND_LOGO CLIENT_DESKTOP CLIENT_DM CLIENT_DM_UNIT CLIENT_DISTRO CLIENT_ISO CLIENT_INSTALL_ISO CLIENT_OS_VARIANTS MACHINE_TOKEN_PIN UKI_TRUST DHCP_START DHCP_END REALM DC_FQDN DOMAIN_DN LINUX_OU LINUX_GROUPS_OU PROBE_USER SMB_SEAL
+export IDP NFS_HOME HOME_MODE O365_APPS IDM_GROUP CA_NAME PKI_ENROLL CIFS_HOME SNX_RS CLIENT_DE BRAND_BG BRAND_LOGO \
+    CLIENT_DESKTOP CLIENT_DM CLIENT_DM_UNIT CLIENT_DISTRO CLIENT_ISO CLIENT_INSTALL_ISO CLIENT_OS_VARIANTS \
+    MACHINE_TOKEN_PIN UKI_TRUST DHCP_START DHCP_END REALM DC_FQDN DOMAIN_DN LINUX_OU LINUX_GROUPS_OU PROBE_USER SMB_SEAL
 
 need_secrets() {
     local v bad=""

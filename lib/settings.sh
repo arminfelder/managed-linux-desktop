@@ -12,7 +12,8 @@ declare -A S_DEFAULT=() S_HELP=() S_SECTION=() S_SOURCE=()
 
 # Allowed values. A setting not in this list takes any value.
 declare -A S_CHOICES=(
-    [UKI]="0 1" [UKI_TRUST]="db mok" [ENROLL_TPM2]="0 1" [CIFS_HOME]="0 1" [SMB_ENCRYPT]="0 1" [SNX_RS]="0 1" [CLIENT_DE]="gnome kde" [CLIENT_DISTRO]="ubuntu fedora"
+    [UKI]="0 1" [UKI_TRUST]="db mok" [ENROLL_TPM2]="0 1" [CIFS_HOME]="0 1" [SMB_ENCRYPT]="0 1" [SNX_RS]="0 1"
+    [CLIENT_DE]="gnome kde" [CLIENT_DISTRO]="ubuntu fedora"
     [PKI_ENROLL]="web dcom ipa none" [IDP]="windows freeipa" [NFS_HOME]="0 1" [O365_APPS]="0 1"
 )
 # The setting is asked only when the condition is true. Else the default is taken (empty for a password).
@@ -120,7 +121,8 @@ settings_ask() {
 settings_take() {
     local n="$1" why="$2"
     if s_secret "$n"; then
-        if [ "$why" = "no terminal" ]; then ANSWER="$n=$(printf '%q' "$(settings_password)")"; S_SOURCE[$n]="generated, $why"
+        if [ "$why" = "no terminal" ]; then
+            ANSWER="$n=$(printf '%q' "$(settings_password)")"; S_SOURCE[$n]="generated, $why"
         else ANSWER="$n="; S_SOURCE[$n]="empty, $why"; fi
     else
         ANSWER="$n=${S_DEFAULT[$n]}"; S_SOURCE[$n]="default, $why"
@@ -128,33 +130,52 @@ settings_take() {
     eval "$ANSWER"
 }
 
-# settings_write NAME=LINE...: replaces the NAME= line in lab.env, or appends it. A missing lab.env comes from env.example.
+# settings_merge < lab.env: replaces each line with a name in new[] of settings_write, and removes that name from new[].
+settings_merge() {
+    local line n
+    while IFS= read -r line || [ -n "$line" ]; do
+        n=${line%%=*}
+        if [[ "$line" == [A-Z_]*=* && -n "${new[$n]+x}" ]]; then printf '%s\n' "${new[$n]}"; unset "new[$n]"
+        else printf '%s\n' "$line"; fi
+    done
+}
+
+# settings_append FILE: appends the names that are still in new[] of settings_write, with their help text.
+settings_append() {
+    local n
+    [ "${#new[@]}" -gt 0 ] || return 0
+    printf '\n# --- added by ./build.sh config, %s ---\n' "$(date -u +%F)" >> "$1"
+    for n in "${S_NAMES[@]}"; do
+        [ -n "${new[$n]+x}" ] || continue
+        [ -z "${S_HELP[$n]}" ] || s_indent '# ' "${S_HELP[$n]}" >> "$1"
+        printf '%s\n' "${new[$n]}" >> "$1"
+    done
+}
+
+# settings_from_example < env.example: replaces each line with a name in new[] of settings_write.
+settings_from_example() {
+    local line n
+    while IFS= read -r line || [ -n "$line" ]; do
+        n=${line%%=*}
+        if [[ "$line" == [A-Z_]*=* && -n "${new[$n]+x}" ]]; then printf '%s\n' "${new[$n]}"
+        elif [[ "$line" == "# Copy to lab.env and edit."* ]]; then
+            printf '# Written by ./build.sh config from env.example. Edit it, or run ./build.sh config again.\n'
+        else printf '%s\n' "$line"; fi
+    done
+}
+
+# settings_write NAME=LINE...: replaces the NAME= line in lab.env, or appends it.
+# A missing lab.env comes from env.example.
 settings_write() {
-    local tmp line n
+    local tmp line
     declare -A new=()
     for line in "$@"; do new[${line%%=*}]=$line; done
     tmp=$(mktemp "$SETTINGS_FILE.XXXXXX")
     if [ -f "$SETTINGS_FILE" ]; then
-        while IFS= read -r line || [ -n "$line" ]; do
-            n=${line%%=*}
-            if [[ "$line" == [A-Z_]*=* && -n "${new[$n]+x}" ]]; then printf '%s\n' "${new[$n]}"; unset "new[$n]"
-            else printf '%s\n' "$line"; fi
-        done < "$SETTINGS_FILE" > "$tmp"
-        if [ "${#new[@]}" -gt 0 ]; then
-            printf '\n# --- added by ./build.sh config, %s ---\n' "$(date -u +%F)" >> "$tmp"
-            for n in "${S_NAMES[@]}"; do
-                [ -n "${new[$n]+x}" ] || continue
-                [ -z "${S_HELP[$n]}" ] || s_indent '# ' "${S_HELP[$n]}" >> "$tmp"
-                printf '%s\n' "${new[$n]}" >> "$tmp"
-            done
-        fi
+        settings_merge < "$SETTINGS_FILE" > "$tmp"
+        settings_append "$tmp"
     else
-        while IFS= read -r line || [ -n "$line" ]; do
-            n=${line%%=*}
-            if [[ "$line" == [A-Z_]*=* && -n "${new[$n]+x}" ]]; then printf '%s\n' "${new[$n]}"
-            elif [[ "$line" == "# Copy to lab.env and edit."* ]]; then printf '# Written by ./build.sh config from env.example. Edit it, or run ./build.sh config again.\n'
-            else printf '%s\n' "$line"; fi
-        done < "$SETTINGS_EXAMPLE" > "$tmp"
+        settings_from_example < "$SETTINGS_EXAMPLE" > "$tmp"
     fi
     chmod 600 "$tmp"
     mv "$tmp" "$SETTINGS_FILE"
@@ -165,14 +186,16 @@ settings_complete() {
     settings_parse
     # shellcheck source=/dev/null
     if [ -f "$SETTINGS_FILE" ]; then set -a; . "$SETTINGS_FILE"; set +a; fi
-    local n tty=1 answers=() asked=()
+    local n tty=1 answers=()
+    local asked=()
     [ -r /dev/tty ] && { : </dev/tty; } 2>/dev/null || tty=0
     for n in "${S_NAMES[@]}"; do
         settings_missing "$n" || continue
         if [ -n "${S_WHEN[$n]:-}" ] && ! eval "${S_WHEN[$n]}"; then settings_take "$n" "not needed"
         elif [ "$tty" = 0 ]; then settings_take "$n" "no terminal"
         else
-            [ "${#asked[@]}" -gt 0 ] || s_say "$(basename "$SETTINGS_FILE") has no value for some settings. Enter = default in []."
+            [ "${#asked[@]}" -gt 0 ] \
+                || s_say "$(basename "$SETTINGS_FILE") has no value for some settings. Enter = default in []."
             settings_ask "$n"
         fi
         asked+=("$n"); answers+=("$ANSWER")
@@ -188,7 +211,9 @@ settings_show() {
     [ "${#S_NAMES[@]}" -gt 0 ] || settings_parse
     local n section=""
     for n in "${S_NAMES[@]}"; do
-        if [ "${S_SECTION[$n]}" != "$section" ]; then section=${S_SECTION[$n]}; printf '\n\033[1m%s\033[0m\n' "${section:-general}"; fi
+        if [ "${S_SECTION[$n]}" != "$section" ]; then
+            section=${S_SECTION[$n]}; printf '\n\033[1m%s\033[0m\n' "${section:-general}"
+        fi
         printf '  %-16s %s\n' "$n" "$(s_masked "$n" "${!n-}")"
     done
 }

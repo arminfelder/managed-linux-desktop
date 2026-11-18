@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # SELinux stays enforcing. Fixes go through booleans, file contexts and the small module mld.
 # Sourced by firstboot.sh on Fedora. Needs $CFG, $STATE, phase, fail.
 
@@ -7,7 +8,9 @@ selinux_restore() {
     local re path
     while read -r re _; do
         path=$(printf '%s' "$re" | sed 's/[][(){}.*+?^$|\\].*//')
-        while [ ! -e "$path" ] && [ "$(printf '%s' "$path" | tr -cd / | wc -c)" -gt 2 ]; do path=$(dirname "$path"); done
+        while [ ! -e "$path" ] && [ "$(printf '%s' "$path" | tr -cd / | wc -c)" -gt 2 ]; do
+            path=$(dirname "$path")
+        done
         [ -e "$path" ] || { echo "restorecon: $path does not exist, skipped"; continue; }
         restorecon -R "$path"
     done < <(selinux_lines "$CFG/selinux/fcontexts.list")

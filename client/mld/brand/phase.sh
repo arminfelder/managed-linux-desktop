@@ -18,7 +18,8 @@ brand_plymouth() {
     printf '[Daemon]\nTheme=mld\n' > /etc/plymouth/plymouthd.conf
     case "$CLIENT_DISTRO" in
     ubuntu)
-        update-alternatives --install /usr/share/plymouth/themes/default.plymouth default.plymouth "$PLY_DIR/mld.plymouth" 300
+        update-alternatives --install /usr/share/plymouth/themes/default.plymouth default.plymouth \
+            "$PLY_DIR/mld.plymouth" 300
         update-alternatives --set default.plymouth "$PLY_DIR/mld.plymouth"
         ;;
     fedora)

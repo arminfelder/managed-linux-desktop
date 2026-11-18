@@ -30,8 +30,9 @@ write_dracut_conf() {
         grep -qx "$m" <<<"$list" && mods+=" $m"
     done
     # dyn-netconf (Ubuntu) needs systemd-networkd.
-    printf 'add_dracutmodules+="%s "\ninstall_items+=" /etc/crypttab "\nomit_dracutmodules+=" systemd-networkd network network-legacy network-manager dyn-netconf "\n' \
-        "$mods" > /etc/dracut.conf.d/90-mld-crypt.conf
+    printf 'add_dracutmodules+="%s "\ninstall_items+=" /etc/crypttab "\n%s\n' "$mods" \
+        'omit_dracutmodules+=" systemd-networkd network network-legacy network-manager dyn-netconf "' \
+        > /etc/dracut.conf.d/90-mld-crypt.conf
     echo "dracut modules:$mods"
 }
 
@@ -105,7 +106,8 @@ phase_admin_pw() {
 phase_luks_check() {
     phase luks-check
     local dev; dev=$(luks_dev 2>/dev/null || true)
-    [ -n "$dev" ] || fail "root is not on LUKS (no /etc/crypttab entry): install again with \"Encrypt the LVM group with LUKS\""
+    [ -n "$dev" ] \
+        || fail "root is not on LUKS (no /etc/crypttab entry): install again with \"Encrypt the LVM group with LUKS\""
     [ "$(cryptsetup luksDump "$dev" | awk '/^Version:/ { print $2 }')" = 2 ] || fail "$dev is not LUKS2"
 }
 

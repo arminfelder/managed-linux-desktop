@@ -76,7 +76,8 @@ submit_csr() {
                 || { echo "certsrv not reachable" >&2; return 3; }
             id=$(printf '%s' "$resp" | grep -o 'certnew.cer?ReqID=[0-9]*' | head -1 | cut -d= -f2)
             if [ -z "$id" ]; then
-                echo "certsrv: $(printf '%s' "$resp" | sed 's/<[^>]*>//g' | grep -iE 'disposition|denied|pending|error|0x' | head -3 | tr -s ' \n' ' ')" >&2
+                echo "certsrv: $(printf '%s' "$resp" | sed 's/<[^>]*>//g' |
+                    grep -iE 'disposition|denied|pending|error|0x' | head -3 | tr -s ' \n' ' ')" >&2
                 printf '%s' "$resp" | grep -qi 'pending' && return 5
                 return 2
             fi
@@ -141,7 +142,8 @@ cmd_ca() {
     [ "$(id -u)" = 0 ] || die "ca needs root"
     # Root only: /etc/mld is readable here. Source before the RETURN trap: a sourced file would fire it.
     # shellcheck source=/dev/null
-    CLIENT_DISTRO=$(. /etc/mld/config.env && echo "$CLIENT_DISTRO") || die "missing /etc/mld/config.env: run ./build.sh client resume"
+    CLIENT_DISTRO=$(. /etc/mld/config.env && echo "$CLIENT_DISTRO") \
+        || die "missing /etc/mld/config.env: run ./build.sh client resume"
     export CLIENT_DISTRO
     # shellcheck source=/dev/null
     . /etc/mld/distro.sh || die "missing /etc/mld/distro.sh: run ./build.sh client resume"
@@ -167,19 +169,25 @@ cmd_ca() {
 
     install -d -m 755 "$CA_DIR"
     for f in "$CA_DIR"/${CA_PREFIX}*.crt; do
-        if [ -e "$f" ] && [ ! -e "$tmp/new/${f##*/}" ]; then rm -f "$f"; changed=1; echo "removed: ${f##*/} (not in AD)"; fi
+        if [ -e "$f" ] && [ ! -e "$tmp/new/${f##*/}" ]; then
+            rm -f "$f"; changed=1; echo "removed: ${f##*/} (not in AD)"
+        fi
     done
     for f in "$tmp/new"/*.crt; do
         if ! cmp -s "$f" "$CA_DIR/${f##*/}"; then install -m 644 "$f" "$CA_DIR/"; changed=1; echo "added: ${f##*/}"; fi
     done
     # Older Ubuntu versions had one file for the CA named CA_NAME.
-    if [ "$CLIENT_DISTRO" = ubuntu ] && [ -e /usr/local/share/ca-certificates/mld-ca.crt ]; then rm -f /usr/local/share/ca-certificates/mld-ca.crt; changed=1; fi
+    if [ "$CLIENT_DISTRO" = ubuntu ] && [ -e /usr/local/share/ca-certificates/mld-ca.crt ]; then
+        rm -f /usr/local/share/ca-certificates/mld-ca.crt; changed=1
+    fi
     if [ "$changed" = 1 ]; then ca_trust_update; fi
 
     cat "$CA_DIR"/${CA_PREFIX}*.crt > "$tmp/bundle"
     cmp -s "$tmp/bundle" "$CA_BUNDLE" || install -m 644 "$tmp/bundle" "$CA_BUNDLE"
     # Chrome does not read the system store on Linux. The policy gives it the same certificates (DER, base64).
-    for f in "$CA_DIR"/${CA_PREFIX}*.crt; do list+="${list:+, }\"$(openssl x509 -in "$f" -outform DER | base64 -w0)\""; done
+    for f in "$CA_DIR"/${CA_PREFIX}*.crt; do
+        list+="${list:+, }\"$(openssl x509 -in "$f" -outform DER | base64 -w0)\""
+    done
     printf '{\n  "CACertificates": [%s]\n}\n' "$list" > "$tmp/chrome.json"
     cmp -s "$tmp/chrome.json" "$CHROME_CA" || install -D -m 644 "$tmp/chrome.json" "$CHROME_CA"
     for f in "$CA_DIR"/${CA_PREFIX}*.crt; do

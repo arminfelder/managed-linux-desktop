@@ -41,31 +41,52 @@ function Wait-CA {
     throw 'CA does not answer after the restart'
 }
 
+function New-TemplateObject([string]$name, [string]$source, [hashtable]$change) {
+    $src = Get-ADObject "CN=$source,$tplBase" -Properties $copyAttrs
+    $attrs = @{}
+    foreach ($a in $copyAttrs) { if ($null -ne $src.$a) { $attrs[$a] = $src.$a } }
+    foreach ($k in $change.Keys) { $attrs[$k] = $change[$k] }
+    # A duplicate is not a default template: clear CT_FLAG_IS_DEFAULT (0x10000), set IS_MODIFIED (0x20000).
+    $attrs['flags'] = [int](([int64]$src.flags -band (-bnot [int64]0x10000)) -bor 0x20000)
+    $attrs['displayName'] = $name
+    $attrs['revision'] = [int]100
+    $attrs['msPKI-Template-Schema-Version'] = [int]2
+    $attrs['msPKI-Template-Minor-Revision'] = [int]1
+    $attrs['msPKI-Cert-Template-OID'] = New-TemplateOid $name
+    # Byte arrays (key usage, periods) must be [byte[]]; multi-valued strings must be [string[]].
+    foreach ($k in @($attrs.Keys)) {
+        $v = $attrs[$k]
+        if ($v -is [Microsoft.ActiveDirectory.Management.ADPropertyValueCollection]) {
+            if ($v.Count -eq 0) { $attrs.Remove($k); continue }
+            $attrs[$k] = if ($v[0] -is [byte]) { [byte[]]@($v) } else { [string[]]@($v) }
+        }
+    }
+    New-ADObject -Path $tplBase -Type pKICertificateTemplate -Name $name -OtherAttributes $attrs
+    Write-Host "template $name made from $source"
+}
+
+# Add-CATemplate checks a local template cache that Windows refreshes late ("does not exist in the domain").
+# Publishing is the certificateTemplates attribute of the CA object, so write it directly if necessary.
+function Publish-LinuxTemplate([string]$name) {
+    if (-not (Get-CATemplate | Where-Object Name -eq $name)) {
+        try { Add-CATemplate -Name $name -Force }
+        catch {
+            $ca = Get-ADObject "CN=$($Cfg.CaName),CN=Enrollment Services,$pks" -Properties certificateTemplates
+            if ($ca.certificateTemplates -notcontains $name) {
+                Set-ADObject $ca -Add @{ certificateTemplates = $name }
+            }
+            Restart-Service CertSvc
+            Wait-CA
+        }
+    }
+    if (-not (Get-CATemplate | Where-Object Name -eq $name)) { throw "CA does not publish $name" }
+}
+
 function New-LinuxTemplate([string]$name, [string]$source, [string]$group, [hashtable]$change) {
     $dn = "CN=$name,$tplBase"
     # The templates are in the configuration partition: without -SearchBase, Get-ADObject searches the domain.
     if (-not (Get-ADObject -SearchBase $tplBase -SearchScope OneLevel -Filter "cn -eq '$name'")) {
-        $src = Get-ADObject "CN=$source,$tplBase" -Properties $copyAttrs
-        $attrs = @{}
-        foreach ($a in $copyAttrs) { if ($null -ne $src.$a) { $attrs[$a] = $src.$a } }
-        foreach ($k in $change.Keys) { $attrs[$k] = $change[$k] }
-        # A duplicate is not a default template: clear CT_FLAG_IS_DEFAULT (0x10000), set IS_MODIFIED (0x20000).
-        $attrs['flags'] = [int](([int64]$src.flags -band (-bnot [int64]0x10000)) -bor 0x20000)
-        $attrs['displayName'] = $name
-        $attrs['revision'] = [int]100
-        $attrs['msPKI-Template-Schema-Version'] = [int]2
-        $attrs['msPKI-Template-Minor-Revision'] = [int]1
-        $attrs['msPKI-Cert-Template-OID'] = New-TemplateOid $name
-        # Byte arrays (key usage, periods) must be [byte[]]; multi-valued strings must be [string[]].
-        foreach ($k in @($attrs.Keys)) {
-            $v = $attrs[$k]
-            if ($v -is [Microsoft.ActiveDirectory.Management.ADPropertyValueCollection]) {
-                if ($v.Count -eq 0) { $attrs.Remove($k); continue }
-                $attrs[$k] = if ($v[0] -is [byte]) { [byte[]]@($v) } else { [string[]]@($v) }
-            }
-        }
-        New-ADObject -Path $tplBase -Type pKICertificateTemplate -Name $name -OtherAttributes $attrs
-        Write-Host "template $name made from $source"
+        New-TemplateObject $name $source $change
     }
 
     $sid = (Get-ADGroup $group).SID
@@ -80,21 +101,7 @@ function New-LinuxTemplate([string]$name, [string]$source, [string]$group, [hash
     }
     $acl.AddAccessRule((New-Object System.DirectoryServices.ActiveDirectoryAccessRule $sid, 'GenericRead', 'Allow'))
     Set-Acl "AD:$dn" $acl
-
-    # Add-CATemplate checks a local template cache that Windows refreshes late ("does not exist in the domain").
-    # Publishing is the certificateTemplates attribute of the CA object, so write it directly if necessary.
-    if (-not (Get-CATemplate | Where-Object Name -eq $name)) {
-        try { Add-CATemplate -Name $name -Force }
-        catch {
-            $ca = Get-ADObject "CN=$($Cfg.CaName),CN=Enrollment Services,$pks" -Properties certificateTemplates
-            if ($ca.certificateTemplates -notcontains $name) {
-                Set-ADObject $ca -Add @{ certificateTemplates = $name }
-            }
-            Restart-Service CertSvc
-            Wait-CA
-        }
-    }
-    if (-not (Get-CATemplate | Where-Object Name -eq $name)) { throw "CA does not publish $name" }
+    Publish-LinuxTemplate $name
 }
 
 # msPKI-Enrollment-Flag 0x20 = CT_FLAG_AUTO_ENROLLMENT.

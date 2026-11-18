@@ -1,7 +1,8 @@
 #!/bin/bash
 # Builds and signs one unified kernel image (UKI) per installed kernel, when UKI=1 in /etc/mld/config.env.
 #
-#   mld-uki [KVER]              build /boot/efi/EFI/Linux/mld-KVER.efi (default: newest kernel), then sync the boot entries
+#   mld-uki [KVER]              build /boot/efi/EFI/Linux/mld-KVER.efi (default: newest kernel),
+#                               then sync the boot entries
 #   mld-uki all                 build the UKI of each installed kernel (after an initrd change), then sync
 #   mld-uki sync                build only the missing UKIs, then sync (first boot, client resume)
 #   mld-uki remove KVER         delete the UKI of KVER, then sync (/etc/kernel/postrm.d/zz-mld-uki)
@@ -90,7 +91,8 @@ cmd_mok_import() {
 # so lsblk gives empty values.
 esp_disk_part() {
     local src; src=$(basename "$(findmnt -no SOURCE /boot/efi)")
-    printf '/dev/%s %s\n' "$(basename "$(readlink -f "/sys/class/block/$src/..")")" "$(cat "/sys/class/block/$src/partition")"
+    printf '/dev/%s %s\n' "$(basename "$(readlink -f "/sys/class/block/$src/..")")" \
+        "$(cat "/sys/class/block/$src/partition")"
 }
 
 # Prints "NUM LABEL" for each boot entry whose label starts with "MLD UKI".
@@ -140,7 +142,8 @@ cmd_bootentry() {
 
     # BootOrder: the UKI entries, newest kernel first, then the other entries in their old order.
     order=$(mld_entries | awk '{ print $NF, $1 }' | sort -V -r -k1,1 | awk '{ print $2 }' | paste -sd,)
-    rest=$(efibootmgr | sed -n 's/^BootOrder: //p' | tr ',' '\n' | grep -vxF -f <(mld_entries | cut -d' ' -f1) | paste -sd, || true)
+    rest=$(efibootmgr | sed -n 's/^BootOrder: //p' | tr ',' '\n' |
+        grep -vxF -f <(mld_entries | cut -d' ' -f1) | paste -sd, || true)
     [ -z "$order" ] || efibootmgr --quiet --bootorder "$order${rest:+,$rest}"
     efibootmgr | grep -E '^BootOrder|MLD UKI'
 }

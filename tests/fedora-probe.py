@@ -1,5 +1,12 @@
-# Fact-finding only. Repomd and RPMs are checked against checksums from the same
-# HTTPS host, not against GPG signatures. Do not use this as an install trust path.
+"""Read the Fedora 45 repository metadata and print the package facts that the Fedora client needs.
+
+  python3 -I tests/fedora-probe.py WORK FIXDIR   (tests/fedora-probe.sh WORK is the usual call)
+
+WORK is an empty directory for the downloads. FIXDIR gets the authselect fixtures and fedora-pkgs.txt.
+Output: KEY=VALUE lines, then the file owners and the Ubuntu to Fedora package map. Exit 1 on a problem.
+Fact-finding only. Repomd and RPMs are checked against checksums from the same
+HTTPS host, not against GPG signatures. Do not use this as an install trust path.
+"""
 import gzip
 import hashlib
 import importlib.util
@@ -105,10 +112,10 @@ THIRD_PARTY = {"google-chrome-stable", "snx-rs"}
 GROUPS = ["workstation-product-environment", "kde-desktop-environment"]
 
 
-def ubuntu_packages(root):
+def autoinstall_packages(path):
     names = set()
     inlist = False
-    with open(os.path.join(root, "client", "user-data.tmpl")) as f:
+    with open(path) as f:
         for line in f:
             if re.match(r"^  packages:\s*$", line):
                 inlist = True
@@ -118,16 +125,26 @@ def ubuntu_packages(root):
                     break
                 if "@@" not in m.group(1):
                     names.add(m.group(1))
+    return names
+
+
+def script_packages(path):
+    names = set()
+    with open(path) as f:
+        text_ = f.read().replace("\\\n", " ")
+    for m in re.finditer(r"^\s*pkg_install\s+([^\n;&|]+)", text_, re.M):
+        for w in m.group(1).split():
+            if re.fullmatch(r"[a-z0-9][a-z0-9+.-]*", w):
+                names.add(w)
+    return names
+
+
+def ubuntu_packages(root):
+    names = autoinstall_packages(os.path.join(root, "client", "user-data.tmpl"))
     for dp, _, fs in os.walk(os.path.join(root, "client", "mld")):
         for fn in fs:
-            if not fn.endswith(".sh"):
-                continue
-            with open(os.path.join(dp, fn)) as f:
-                text_ = f.read().replace("\\\n", " ")
-            for m in re.finditer(r"^\s*pkg_install\s+([^\n;&|]+)", text_, re.M):
-                for w in m.group(1).split():
-                    if re.fullmatch(r"[a-z0-9][a-z0-9+.-]*", w):
-                        names.add(w)
+            if fn.endswith(".sh"):
+                names |= script_packages(os.path.join(dp, fn))
     return names
 
 
@@ -237,6 +254,16 @@ def nevra(r):
     return "%s-%s%s-%s.%s" % (r["name"], e + ":" if e != "0" else "", v, rel, r["arch"])
 
 
+def package_files(el, n, own_re, lst_re, owners, lists):
+    for f in el.findall(FNS + "file"):
+        path = f.text
+        for k, rx in own_re:
+            if rx.search(path):
+                owners[k].append((n, path))
+        if n in lst_re and lst_re[n].search(path):
+            lists[n].append(path)
+
+
 def read_filelists(repos, pkgs):
     chosen = {r["pkgid"]: r["name"] for r in pkgs.values()}
     owners = {k: [] for k, _ in FILE_OWNERS}
@@ -250,13 +277,7 @@ def read_filelists(repos, pkgs):
             pid = el.get("pkgid")
             n = chosen.get(pid)
             if n:
-                for f in el.findall(FNS + "file"):
-                    path = f.text
-                    for k, rx in own_re:
-                        if rx.search(path):
-                            owners[k].append((n, path))
-                    if n in lst_re and lst_re[n].search(path):
-                        lists[n].append(path)
+                package_files(el, n, own_re, lst_re, owners, lists)
             el.clear()
     return owners, lists
 
@@ -349,27 +370,14 @@ def active(t):
     return [l.strip() for l in t.splitlines() if l.strip() and not l.lstrip().startswith("#")]
 
 
-def main():
-    work, fixdir = sys.argv[1], sys.argv[2]
-    problems = []
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    derived = ubuntu_packages(root)
-    mapped = {u for u, _ in PKG_MAP}
-    for u in sorted(derived - mapped):
-        problems.append("Ubuntu package without PKG_MAP entry: " + u)
-    if not derived:
-        problems.append("no Ubuntu packages derived")
-    repos = repodata(work)
-    pkgs = read_primary(repos)
-    owners, lists = read_filelists(repos, pkgs)
-    comps = read_comps(repos)
-    units = {}
-    kv = []
+PL_CONF = re.compile(r"^/(etc|usr/lib)/(plasmalogin|sddm|sysconfig|pam\.d)|plasmalogin.*\.conf|sddm.*\.conf|/pam\.d/")
+PL_SCAN = ("/usr/bin/", "/usr/libexec/", "/usr/lib64/", "/usr/share/plasma", "/usr/share/plasmalogin",
+           "/usr/share/kpackage", "/usr/share/kconf_update")
+PL_KEYS = re.compile(rb"(?:Maximum|Minimum)Uid|HideUsers|HideShells|ShowUsers|UserList|UserModel|userList"
+                     rb"|showUserList|hideUser")
 
-    def put(k, v):
-        kv.append("%s=%s" % (k, v))
 
-    put("FEDORA_REPOS", ",".join(b for _, (b, _) in repos.items()))
+def probe_qemu_ga(work, pkgs, put):
     qg = pkgs["qemu-guest-agent"]
     put("QEMU_GA_PKG", nevra(qg))
     f = extract(work, qg, lambda p: p == "/etc/sysconfig/qemu-ga" or (
@@ -382,6 +390,9 @@ def main():
     put("QEMU_GA_FILTER", ";".join(flt) or "none")
     put("QEMU_GA_SYSCONFIG_PRESENT", "yes" if "/etc/sysconfig/qemu-ga" in f else "no")
 
+
+def probe_groups(comps, put):
+    """Display manager packages per environment group: {group: ["name:type(subgroup)", ...]}."""
     for gid in GROUPS:
         cl = closure(comps, gid)
         put("GROUP[%s]_SUBGROUPS" % gid, ",".join(sorted(cl)))
@@ -389,62 +400,87 @@ def main():
     found = {}
     for gid in GROUPS:
         for g, pk in closure(comps, gid).items():
-            for t, n in pk:
-                if dm_re.search(n):
-                    found.setdefault(gid, []).append("%s:%s(%s)" % (n, t, g))
+            found_dm(found, gid, g, pk, dm_re)
     for gid in GROUPS:
         put("GROUP[%s]_DM_PACKAGES" % gid, ",".join(found.get(gid, [])))
     for g in ("kde-desktop", "gnome-desktop", "guest-desktop-agents", "domain-client", "workstation-product"):
         if g in comps:
             put("GROUP[%s]_PACKAGES" % g, ",".join("%s:%s" % t for t in comps[g][0]))
+    return found
+
+
+def found_dm(found, gid, g, pk, dm_re):
+    for t, n in pk:
+        if dm_re.search(n):
+            found.setdefault(gid, []).append("%s:%s(%s)" % (n, t, g))
+
+
+def pkg_or_no(pkgs, name):
+    return nevra(pkgs[name]) if name in pkgs else "no"
+
+
+def probe_kde_dm(found, pkgs, lists, put):
+    """The KDE display manager: sddm, plasmalogin or UNDECIDED."""
     kde_dm = " ".join(found.get("kde-desktop-environment", []))
     has_sddm = bool(re.search(r"(^| )sddm:", kde_dm))
     has_pl = "plasma-login-manager" in kde_dm
     dm = "sddm" if has_sddm and not has_pl else "plasmalogin" if has_pl and not has_sddm else "UNDECIDED"
     put("KDE_DM", dm)
-    put("PKG_EXISTS[sddm]", nevra(pkgs["sddm"]) if "sddm" in pkgs else "no")
-    put("PKG_EXISTS[plasma-login-manager]", nevra(pkgs["plasma-login-manager"]) if "plasma-login-manager" in pkgs else "no")
+    put("PKG_EXISTS[sddm]", pkg_or_no(pkgs, "sddm"))
+    put("PKG_EXISTS[plasma-login-manager]", pkg_or_no(pkgs, "plasma-login-manager"))
     put("DM_PACKAGES_IN_REPO", ",".join(sorted(n for n in pkgs if re.search(r"sddm|plasma-login|plasmalogin", n))))
+    units = {}
     for k in ("sddm", "plasma-login-manager", "kde-settings-sddm", "kde-settings-plasmalogin", "kde-settings"):
         for p in lists.get(k, []):
             put("PKGFILE[%s]" % k, p)
             if p.endswith(".service") and "/systemd/system/" in p:
                 units[k] = os.path.basename(p)
     put("KDE_DM_UNIT", units.get("sddm" if dm == "sddm" else "plasma-login-manager", "?"))
+    return dm
+
+
+def put_conf(k, p, body, put):
+    if not isinstance(body, bytes):
+        put("CONF[%s:%s]" % (k, p), body)
+        return
+    for l in (text(body).splitlines() if p.endswith("plasmalogin.conf") else active(text(body))):
+        put("CONF[%s:%s]" % (k, p), l)
+
+
+def probe_plasmalogin(work, pkgs, put):
     for k in ("plasma-login-manager", "kde-settings-plasmalogin", "kde-settings-sddm"):
         if k not in pkgs:
             continue
         put("PKG[%s]" % k, nevra(pkgs[k]))
-        f = extract(work, pkgs[k], lambda p: re.search(r"^/(etc|usr/lib)/(plasmalogin|sddm|sysconfig|pam\.d)|plasmalogin.*\.conf|sddm.*\.conf|/pam\.d/", p) and not p.endswith(".service"))
+        f = extract(work, pkgs[k], lambda p: PL_CONF.search(p) and not p.endswith(".service"))
         for p in sorted(f):
-            if isinstance(f[p], bytes):
-                for l in (text(f[p]).splitlines() if p.endswith("plasmalogin.conf") else active(text(f[p]))):
-                    put("CONF[%s:%s]" % (k, p), l)
-            else:
-                put("CONF[%s:%s]" % (k, p), f[p])
-    rx = re.compile(rb"(?:Maximum|Minimum)Uid|HideUsers|HideShells|ShowUsers|UserList|UserModel|userList|showUserList|hideUser")
+            put_conf(k, p, f[p], put)
     for k in ("plasma-login-manager", "kcm-plasmalogin"):
         if k not in pkgs:
             continue
-        f = extract(work, pkgs[k], lambda p: p.startswith(("/usr/bin/", "/usr/libexec/", "/usr/lib64/", "/usr/share/plasma", "/usr/share/plasmalogin", "/usr/share/kpackage", "/usr/share/kconf_update")))
+        f = extract(work, pkgs[k], lambda p: p.startswith(PL_SCAN))
         for p, b in sorted(f.items()):
-            if isinstance(b, bytes):
-                keys = sorted({m.decode() for m in rx.findall(b)})
-                if keys:
-                    put("PLASMALOGIN_USERLIST_KEYS[%s:%s]" % (k, p), ",".join(keys))
+            keys = sorted({m.decode() for m in PL_KEYS.findall(b)}) if isinstance(b, bytes) else []
+            if keys:
+                put("PLASMALOGIN_USERLIST_KEYS[%s:%s]" % (k, p), ",".join(keys))
         put("PLASMALOGIN_SCANNED_FILES[%s]" % k, str(len(f)))
 
+
+def probe_ildap_firefox(owners, lists, pkgs, put):
     for k in ("ildap.so",):
         o = sorted(set(owners[k]))
         put("ILDAP_FILES", ",".join("%s:%s" % t for t in o))
         put("ILDAP_PKG", ",".join(sorted({n for n, _ in o})) or "MISSING")
-
-    for p in lists["firefox"]:
+    ff = lists["firefox"]
+    for p in ff:
         put("FIREFOX_FILE", p)
-    put("FIREFOX_POLICY_DIR", "/usr/lib64/firefox/distribution" if "/usr/lib64/firefox/distribution" in lists["firefox"] else "MISSING")
-    put("FIREFOX_ETC_FILES", ",".join(p for p in lists["firefox"] if p.startswith("/etc/")) or "none")
+    put("FIREFOX_POLICY_DIR", "/usr/lib64/firefox/distribution" if "/usr/lib64/firefox/distribution" in ff
+        else "MISSING")
+    put("FIREFOX_ETC_FILES", ",".join(p for p in ff if p.startswith("/etc/")) or "none")
     put("FIREFOX_PKG", nevra(pkgs["firefox"]))
 
+
+def probe_dnf_automatic(work, pkgs, lists, put):
     da = pkgs["dnf5-plugin-automatic"]
     put("DNF_AUTOMATIC_PKG", nevra(da))
     for p in lists["dnf5-plugin-automatic"]:
@@ -457,6 +493,8 @@ def main():
         for l in active(text(f[p])):
             put("DNF_AUTOMATIC_LINE[%s]" % p, l)
 
+
+def probe_authselect(work, pkgs, fixdir, put):
     au = pkgs["authselect-libs"]
     put("AUTHSELECT_PKG", nevra(au))
     f = extract(work, au, lambda p: p.startswith("/usr/share/authselect/default/sssd/"))
@@ -471,6 +509,8 @@ def main():
     for p in sorted(f):
         put("AUTHSELECT_FILE", p)
 
+
+def write_fixture(root, fixdir, pkgs, problems):
     # Only the names that exist go into the fixture: the render test fedora_pkg_names fails on the others.
     spec = importlib.util.spec_from_file_location("fedora_pkgs", os.path.join(root, "tests", "fedora-pkgs.py"))
     fp = importlib.util.module_from_spec(spec)
@@ -479,14 +519,16 @@ def main():
     used |= {n for n, _ in fp.shell_packages(root)[0]}
     with open(os.path.join(fixdir, "fedora-pkgs.txt"), "w") as o:
         o.write("# Fedora 45 packages (releases + updates, x86_64 or noarch) that the client installs.\n"
-                "# Made by tests/fedora-probe.sh from the repository metadata. Used by the render test fedora_pkg_names.\n")
+                "# Made by tests/fedora-probe.sh from the repository metadata."
+                " Used by the render test fedora_pkg_names.\n")
         for n in sorted(used):
             if n in pkgs:
                 o.write("%s\t%s\n" % (n, nevra(pkgs[n])))
             elif n not in fp.THIRD_PARTY:
                 problems.append("package not in Fedora 45: " + n)
 
-    print("\n".join(kv))
+
+def print_owners(owners, pkgs, problems):
     print("--- OWNERS (key<TAB>package<TAB>NEVRA<TAB>path)")
     for k, _ in FILE_OWNERS:
         o = sorted(set(owners[k]))
@@ -495,25 +537,65 @@ def main():
             problems.append("no owner for file " + k)
         for n, p in o:
             print("%s\t%s\t%s\t%s" % (k, n, nevra(pkgs[n]), p))
+
+
+def map_hit(cands, pkgs, comps):
+    """(candidate, NEVRA or "group") of the first candidate that exists, or None."""
+    for c in cands:
+        if c.startswith("@"):
+            if c[1:] in comps:
+                return (c, "group")
+        elif c in pkgs:
+            return (c, nevra(pkgs[c]))
+    return None
+
+
+def print_map(pkgs, comps, problems):
     print("--- MAP (ubuntu_pkg<TAB>fedora_pkg<TAB>NEVRA)")
     for ub, cands in PKG_MAP:
-        hit = None
         if not cands:
             print("%s\tNOT-IN-FEDORA\t" % ub)
             if ub not in THIRD_PARTY:
                 problems.append("empty candidates for " + ub)
             continue
-        for c in cands:
-            if c.startswith("@"):
-                if c[1:] in comps:
-                    hit = (c, "group")
-                    break
-            elif c in pkgs:
-                hit = (c, nevra(pkgs[c]))
-                break
+        hit = map_hit(cands, pkgs, comps)
         print("%s\t%s\t%s" % (ub, hit[0] if hit else "MISSING", hit[1] if hit else ""))
         if not hit:
             problems.append("no Fedora package for " + ub)
+
+
+def main():
+    work, fixdir = sys.argv[1], sys.argv[2]
+    problems = []
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    derived = ubuntu_packages(root)
+    mapped = {u for u, _ in PKG_MAP}
+    for u in sorted(derived - mapped):
+        problems.append("Ubuntu package without PKG_MAP entry: " + u)
+    if not derived:
+        problems.append("no Ubuntu packages derived")
+    repos = repodata(work)
+    pkgs = read_primary(repos)
+    owners, lists = read_filelists(repos, pkgs)
+    comps = read_comps(repos)
+    kv = []
+
+    def put(k, v):
+        kv.append("%s=%s" % (k, v))
+
+    put("FEDORA_REPOS", ",".join(b for _, (b, _) in repos.items()))
+    probe_qemu_ga(work, pkgs, put)
+    found = probe_groups(comps, put)
+    dm = probe_kde_dm(found, pkgs, lists, put)
+    probe_plasmalogin(work, pkgs, put)
+    probe_ildap_firefox(owners, lists, pkgs, put)
+    probe_dnf_automatic(work, pkgs, lists, put)
+    probe_authselect(work, pkgs, fixdir, put)
+    write_fixture(root, fixdir, pkgs, problems)
+
+    print("\n".join(kv))
+    print_owners(owners, pkgs, problems)
+    print_map(pkgs, comps, problems)
     if dm == "UNDECIDED":
         problems.append("KDE_DM UNDECIDED")
     if kv and "ILDAP_PKG=MISSING" in kv:

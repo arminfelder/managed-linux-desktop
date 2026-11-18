@@ -65,13 +65,15 @@ dc_vm() {
     # clock offset=utc: Kerberos rejects more than 5 min skew between the client and the DC.
     # The install config has on_reboot=destroy. --wait keeps virt-install until the first Setup reboot,
     # then virt-install starts the final config (boot=hd).
+    local disk="pool=$POOL,size=$DC_DISK_GB,bus=virtio,format=qcow2"
+    disk+=",driver.cache=none,driver.io=native,driver.discard=unmap"
     virt-install \
         --connect "$LIBVIRT_URI" \
         --name "$DC_VM" \
         --vcpus "$DC_VCPUS" \
         --memory "$DC_RAM_MB" \
         --cpu host-passthrough \
-        --disk "pool=$POOL,size=$DC_DISK_GB,bus=virtio,format=qcow2,driver.cache=none,driver.io=native,driver.discard=unmap" \
+        --disk "$disk" \
         --network "network=$NET,model=virtio" \
         --cdrom "$WINSERVER_ISO" \
         --disk "path=$VIRTIO_ISO,device=cdrom,readonly=on" \
@@ -89,7 +91,8 @@ dc_vm() {
     local alloc
     alloc=$("${VIRSH[@]}" domblkinfo "$DC_VM" vda | awk '/^Allocation:/ { print $2 }')
     if [ "${alloc:-0}" -lt $(( 6 * 1024 * 1024 * 1024 )) ]; then
-        die "WinPE stopped early: only $(( ${alloc:-0} / 1024 / 1024 )) MiB on the disk. Check: ./build.sh dc screenshot"
+        die "WinPE stopped early: only $(( ${alloc:-0} / 1024 / 1024 )) MiB on the disk." \
+            "Check: ./build.sh dc screenshot"
     fi
     "${VIRSH[@]}" domstate "$DC_VM" | grep -q running || die "$DC_VM is not running after the Setup reboot"
     log "Windows Setup passed its first reboot. Next: ./build.sh dc wait"
@@ -141,7 +144,8 @@ dc_wait() {
     log "waiting for DC provisioning (up to 2 h)"
     while [ "$(date +%s)" -lt "$deadline" ]; do
         if "${VIRSH[@]}" domstate "$DC_VM" --reason 2>/dev/null | grep -q crashed; then
-            die "DC crashed (bluescreen). Stop code: sudo grep 'panic hyper-v' /var/log/libvirt/qemu/$DC_VM.log | tail -1"
+            die "DC crashed (bluescreen)." \
+                "Stop code: sudo grep 'panic hyper-v' /var/log/libvirt/qemu/$DC_VM.log | tail -1"
         fi
         if "${VIRSH[@]}" domstate "$DC_VM" 2>/dev/null | grep -q 'shut off'; then
             warn "DC is shut off during provisioning: starting it"
@@ -225,9 +229,13 @@ checks = [
     ("Homes$ EncryptData", got["encrypt"] == enc, got["encrypt"]),
     ("CA service CertSvc", got.get("ca") == "Running", got.get("ca")),
     ("CA templates Machine, User", {"Machine", "User"} <= set(got.get("templates") or []), got.get("templates")),
-    ("autoenroll templates MLD-LinuxComputer, MLD-LinuxUser", {"MLD-LinuxComputer", "MLD-LinuxUser"} <= set(got.get("templates") or []), sorted(t for t in (got.get("templates") or []) if t.startswith("MLD-"))),
+    ("autoenroll templates MLD-LinuxComputer, MLD-LinuxUser",
+     {"MLD-LinuxComputer", "MLD-LinuxUser"} <= set(got.get("templates") or []),
+     sorted(t for t in (got.get("templates") or []) if t.startswith("MLD-"))),
     ("web enrollment https /certsrv (401)", got.get("web") == 401, got.get("web")),
-    ("central store ADMX (Samba, GNOME, Firefox, Chrome, Windows)", {"samba", "GNOME_Settings", "firefox", "mozilla", "chrome", "google", "windows"} <= set(got.get("admx") or []), got.get("admx")),
+    ("central store ADMX (Samba, GNOME, Firefox, Chrome, Windows)",
+     {"samba", "GNOME_Settings", "firefox", "mozilla", "chrome", "google", "windows"} <= set(got.get("admx") or []),
+     got.get("admx")),
 ]
 for u in got["users"]:
     n = u["name"]
@@ -239,7 +247,8 @@ for u in got["users"]:
     ]
 # Information only: certsrv and DCOM also work with the Public profile (firewall rules with profile Any).
 if got.get("net") != ["DomainAuthenticated"]:
-    print(f"  warn  network profile is {got.get('net')}, not DomainAuthenticated (Domain-only firewall rules do not apply)")
+    print(f"  warn  network profile is {got.get('net')}, not DomainAuthenticated"
+          " (Domain-only firewall rules do not apply)")
 bad = 0
 for name, ok, val in checks:
     print(f"  {'ok  ' if ok else 'FAIL'}  {name}: {val}")
@@ -255,7 +264,9 @@ PY
 dc_revert() {
     "${VIRSH[@]}" snapshot-revert "$DC_VM" "$SNAPSHOT" --running
     for _ in $(seq 1 30); do
-        if GUEST_EXEC_TIMEOUT=30 ./guest-exec.sh dc "Set-Date -Date ([DateTimeOffset]::FromUnixTimeSeconds($(date -u +%s)).LocalDateTime) | Out-Null" >/dev/null 2>&1; then
+        if GUEST_EXEC_TIMEOUT=30 ./guest-exec.sh dc \
+            "Set-Date -Date ([DateTimeOffset]::FromUnixTimeSeconds($(date -u +%s)).LocalDateTime) | Out-Null" \
+            >/dev/null 2>&1; then
             log "reverted $DC_VM to $SNAPSHOT, clock set (skew $(dc_skew)s)"
             return 0
         fi

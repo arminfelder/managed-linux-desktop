@@ -65,11 +65,13 @@ phase_pki() {
         esac
     fi
     pkg_install "${CERT_PKGS[@]}"
-    command -v tpm2_ptool >/dev/null || fail "tpm2_ptool missing (package libtpm2-pkcs11-tools, Fedora tpm2-pkcs11-tools)"
+    command -v tpm2_ptool >/dev/null \
+        || fail "tpm2_ptool missing (package libtpm2-pkcs11-tools, Fedora tpm2-pkcs11-tools)"
     [ -x /usr/local/sbin/mld-cert ] || install -m 755 "$CFG/cert/cert.sh" /usr/local/sbin/mld-cert
     [ -x /usr/local/sbin/mld-cert-dcom ] || install -m 755 "$CFG/cert/cert-dcom.py" /usr/local/sbin/mld-cert-dcom
     pki_tpm_group
-    # TPM-bound user files (keys, token store, PIN): one directory per user, made by the user (mld-cert, mld-autoenroll).
+    # TPM-bound user files (keys, token store, PIN): one directory per user,
+    # made by the user (mld-cert, mld-autoenroll).
     install -d -m 1733 -o root -g root /var/lib/mld-users
     # config.env has printf %q values (bash 5.3 escapes ","). autoenroll.py does not remove the escapes.
     vars="DC_FQDN REALM PKI_ENROLL CLIENT_DISTRO CA_ANCHOR_DIR CA_ANCHOR_PREFIX IDP"
