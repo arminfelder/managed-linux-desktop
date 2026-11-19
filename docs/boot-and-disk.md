@@ -68,7 +68,7 @@ NOTE: The shim and grub boot entry stays as the last entry. If the UKI does not 
 With `UKI_TRUST=mok`, the firmware keys stay as delivered: Microsoft keys only.
 shim starts the UKI and checks its signature against the MOK list.
 This is the procedure for devices where you cannot change the firmware db.
-The MOK enrollment is the same as on a real device: the OS sends the request, and MokManager asks for a confirmation at the next boot.
+The MOK enrollment is the same as on a real device. The OS sends the request, and MokManager asks for a confirmation at the next boot.
 In the lab, `lib/console.py` types the confirmation and the MOK password on the serial console.
 
 1. In `lab.env`, set `UKI=1` and `UKI_TRUST=mok`.
@@ -79,7 +79,8 @@ In the lab, `lib/console.py` types the confirmation and the MOK password on the 
 6. Build the client (see [Build the lab](../README.md#build-the-lab), steps 15 to 17).
    The first boot uses shim and grub. If `ENROLL_TPM2=1`, the TPM2 enrollment waits for the UKI boot.
 7. Run `./build.sh client mok-enroll`.
-   The script requests the MOK, confirms it in MokManager, adds a boot entry `MLD UKI (shim) <kernel>` for each kernel and boots the newest UKI.
+   The script requests the MOK and confirms it in MokManager.
+   It adds a boot entry `MLD UKI (shim) <kernel>` for each kernel and boots the newest UKI.
    If `ENROLL_TPM2=1`, the script then enrolls the TPM2 keyslot.
 8. Run `./build.sh client verify`.
 9. Make sure that the script shows `ok lab certificate in MOK`, `ok lab certificate not in db` and `ok boot entry shim + UKI`.

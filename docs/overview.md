@@ -1,8 +1,8 @@
 # Managed Linux desktop lab: design, status, comparison
 
 State: 2026-11-05. The procedures are in [README.md](../README.md) (build, operations) and in the topic files in this directory.
-This document explains what the lab builds, why, what is verified, what is open, and how the design
-compares to the Red Hat and Canonical documentation for direct AD integration.
+This document explains what the lab builds and why, what is verified and what is open.
+It also compares the design to the Red Hat and Canonical documentation for direct AD integration.
 
 ## 1. Purpose and topology
 
@@ -61,15 +61,18 @@ both VMs is in progress (§5).
 
 ## 4. Comparison with the vendor documentation
 
-Sources: Red Hat *Integrating RHEL systems directly with Windows Active Directory* (RHEL 8; the HTML and
-PDF block automated download, so this comparison uses the official chapter excerpts found by search:
-[guide](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/8/html-single/integrating_rhel_systems_directly_with_windows_active_directory/index),
-[chapter 1](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/8/html/integrating_rhel_systems_directly_with_windows_active_directory/connecting-rhel-systems-directly-to-ad-using-sssd_integrating-rhel-systems-directly-with-active-directory),
-[chapter 4](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/8/html/integrating_rhel_systems_directly_with_windows_active_directory/managing-direct-connections-to-ad_integrating-rhel-systems-directly-with-active-directory),
-[KCS 1350723](https://access.redhat.com/solutions/1350723));
-Ubuntu Server docs ([AD integration intro](https://ubuntu.com/server/docs/explanation/intro-to/AD-integration/),
-[SSSD with AD](https://canonical-ubuntu-server-documentation.readthedocs-hosted.com/how-to/sssd/with-active-directory/));
-ADSys ([certificates](https://documentation.ubuntu.com/adsys/stable/explanation/certificates/)).
+Sources:
+
+- Red Hat *Integrating RHEL systems directly with Windows Active Directory* (RHEL 8).
+  The HTML and PDF block automated download.
+  Thus this comparison uses the official chapter excerpts found by search:
+  [guide](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/8/html-single/integrating_rhel_systems_directly_with_windows_active_directory/index),
+  [chapter 1](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/8/html/integrating_rhel_systems_directly_with_windows_active_directory/connecting-rhel-systems-directly-to-ad-using-sssd_integrating-rhel-systems-directly-with-active-directory),
+  [chapter 4](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/8/html/integrating_rhel_systems_directly_with_windows_active_directory/managing-direct-connections-to-ad_integrating-rhel-systems-directly-with-active-directory),
+  [KCS 1350723](https://access.redhat.com/solutions/1350723).
+- Ubuntu Server docs: [AD integration intro](https://ubuntu.com/server/docs/explanation/intro-to/AD-integration/),
+  [SSSD with AD](https://canonical-ubuntu-server-documentation.readthedocs-hosted.com/how-to/sssd/with-active-directory/).
+- ADSys: [certificates](https://documentation.ubuntu.com/adsys/stable/explanation/certificates/).
 
 | Topic | Vendor guidance | Lab | Assessment |
 |---|---|---|---|

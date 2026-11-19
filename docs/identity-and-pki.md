@@ -129,7 +129,7 @@ To examine a certificate, run `mld-cert check user` or, as root, `mld-cert check
 
 NOTE: The `User` template puts the e-mail address into the certificate. Phase 6 sets `mail` for the lab users. An AD user without `mail` gets no user certificate.
 
-NOTE: A TPM key works only in the TPM that made it. The home directory can be on the DC (CIFS) and go to each device, so the TPM files of a user stay in `/var/lib/mld-users/<uid>` on the device. Each device has its own user key and user certificate.
+NOTE: A TPM key works only in the TPM that made it. The home directory can be on the DC (CIFS) and go to each device. Thus the TPM files of a user stay in `/var/lib/mld-users/<uid>` on the device. Each device has its own user key and user certificate.
 
 NOTE: The members of `LINUX_GROUP` can use `/dev/tpmrm0` (udev rule), so that they can make their own TPM keys.
 

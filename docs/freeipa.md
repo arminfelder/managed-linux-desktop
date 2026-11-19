@@ -59,7 +59,7 @@ NOTE: `IPA_DM_PW` is the Directory Manager password (LDAP root). FreeIPA refuses
 5. After `./build.sh client verify`, make sure that all lines show `ok`.
    A Chrome Kerberos line shows `open` (see [Known limits](../README.md#known-limits)).
 
-NOTE: For a lab with both identity servers, use a second work tree with its own `lab.env` (other `DC_VM`, `DC_IP`, `DOMAIN`, `CLIENT_VM`, `CLIENT_HOSTNAME`, `CLIENT_MAC`, `CLIENT_IP`).
+NOTE: For a lab with both identity servers, use a second work tree with its own `lab.env`. That file needs other values for `DC_VM`, `DC_IP`, `DOMAIN`, `CLIENT_VM`, `CLIENT_HOSTNAME`, `CLIENT_MAC` and `CLIENT_IP`.
 
 NOTE: One client has one identity server. To change `IDP` of a built client, remove the client and build it again.
 
@@ -121,7 +121,7 @@ NOTE: A renewal adds the new certificate to the token and keeps the old one, wit
 
 ## Known limits
 
-- Both client distros are built and tested with `IDP=freeipa` (Fedora 45 and Ubuntu 26.04, 2026-11-18). A login of the same user on two clients at the same time is not tested.
+- Both client distros (Fedora 45, Ubuntu 26.04) are built and tested with `IDP=freeipa`. Last test: 2026-11-18. A login of the same user on two clients at the same time is not tested.
 - `client hw-iso` is for `IDP=windows` only. A FreeIPA join of a real device needs a one-time password for each host.
 - Google Chrome does no Kerberos login (`ERR_UNSUPPORTED_AUTH_SCHEME`), as with AD. Firefox does Kerberos to the policy endpoint.
 - The FreeIPA server shows an AVC denial at boot: `rpcbind_t name_bind unreserved_port_t udp_socket`. The server has no `mld` SELinux module. NFS works.

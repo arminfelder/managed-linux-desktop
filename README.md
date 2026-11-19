@@ -2,7 +2,7 @@
 
 A reproducible libvirt lab that integrates an Ubuntu 26.04 or Fedora 45 desktop with a central identity server and tests the integration end to end. Two settings in `lab.env` select the lab:
 
-- `IDP` selects the identity server in the `dc` role: `windows` (the default) is Windows Server 2025 with AD DS, DNS, AD CS and the file share `Homes$`. `freeipa` is FreeIPA on Fedora 45 (directory, Kerberos, DNS, CA, NFS homes), with no Microsoft software and no Microsoft protocols ([docs/freeipa.md](docs/freeipa.md)).
+- `IDP` selects the identity server in the `dc` role. `windows` (the default) is Windows Server 2025 with AD DS, DNS, AD CS and the file share `Homes$`. `freeipa` is FreeIPA on Fedora 45 (directory, Kerberos, DNS, CA, NFS homes). It has no Microsoft software and no Microsoft protocols ([docs/freeipa.md](docs/freeipa.md)).
 - `CLIENT_DISTRO` selects the client OS: `ubuntu` (the default) or `fedora`.
 
 All four combinations build from the same code. With `IDP=windows`, the same code also makes an install image for real hardware.
@@ -18,19 +18,19 @@ Integration points on the client:
 | Browser policy | Group Policy through `samba-gpupdate`, ADMX templates in the central store | policy files pulled from the server (`mld-policy`) |
 | Office web apps | Microsoft 365 launchers | none |
 
-With both identity servers: full disk encryption (LUKS2) unlocked by TPM2 (PCR 7), a signed UKI per kernel through shim and MOK, private keys in TPM tokens, Firefox and Chrome with CA trust and Kerberos policy, snx-rs VPN with the machine certificate, automatic updates, and SELinux enforcing on Fedora.
+Both identity servers give these functions: full disk encryption (LUKS2) unlocked by TPM2 (PCR 7), and a signed UKI per kernel through shim and MOK. Private keys are in TPM tokens. Firefox and Chrome get CA trust and Kerberos policy. The snx-rs VPN uses the machine certificate. Updates are automatic, and SELinux is enforcing on Fedora.
 
 A client rebuild from scratch takes about one hour.
 
 ## Quick start
 
-You need a Linux host with libvirt/KVM, about 20 GB of RAM (the two VMs take 14 GB), up to 110 GB of disk space (VM disks of 60 and 40 GB, thin-provisioned, plus 9 GB of ISO files), and the host tools in [Prerequisites](#prerequisites). The first full build takes about 1.5 to 2.5 hours, most of it unattended.
+You need a Linux host with libvirt/KVM and the host tools in [Prerequisites](#prerequisites). The host needs about 20 GB of RAM (the two VMs take 14 GB). It needs up to 110 GB of disk space: VM disks of 60 and 40 GB (thin-provisioned), plus 9 GB of ISO files. The first full build takes about 1.5 to 2.5 hours, most of it unattended.
 
 ```sh
 ./build.sh setup
 ```
 
-`setup` asks for the settings and passwords that `lab.env` does not have, `IDP` and `CLIENT_DISTRO` among them (Enter takes the default or generates a password), then does everything else without a stop: it downloads and checks the ISO files, makes the libvirt network and pool, checks the host, builds and tests the identity server (the `dc` role), builds and tests the client, and takes a snapshot of each VM. If it stops, for example after a network problem, run it again: it continues where it stopped.
+`setup` asks for the settings and passwords that `lab.env` does not have, `IDP` and `CLIENT_DISTRO` among them. Enter takes the default or generates a password. Then `setup` does everything else without a stop. It downloads and checks the ISO files, makes the libvirt network and pool, and checks the host. It builds and tests the identity server (the `dc` role) and the client, and takes a snapshot of each VM. If it stops, for example after a network problem, run it again: it continues where it stopped.
 
 Then open the client in virt-manager and log in as `alice` with `LAB_USER_PW` from `lab.env`. The step-by-step version with the expected output is [Build the lab](#build-the-lab).
 
@@ -87,9 +87,31 @@ flowchart TD
 
 `build.sh` drives everything. The guests provision themselves. The host talks to them only through the QEMU guest agent (`guest-exec.sh dc|client`).
 
-- **Identity server, `IDP=windows`.** `dc iso` renders `dc/autounattend.xml.tmpl` and `config.ps1` from `lab.env` into the `PROVISION` CD. `dc/provision/run.ps1` then runs the phases across reboots: 1 AD DS, 2 DNS, time, OUs, users and the join account, 3 share `Homes$`, 4 WinRM and RDP, 5 domain facts for the host, 6 AD CS, 7 certificate templates, 8 Linux GPO, 9 ADMX central store. The state is in `C:\build\phase`. The result is `C:\build\DONE` or `C:\build\FAILED`. `dc resume` runs the phases again after a change.
-- **Identity server, `IDP=freeipa`.** `dc vm` installs Fedora 45 from a kickstart (`ipa/ks.cfg.tmpl`), and `ipa/provision/run.sh` runs 5 phases: 1 `ipa-server-install`, 2 users, group and HBAC, 3 NFS homes and automount, 4 user certificate profile, 5 policy endpoint. The state is in `/var/lib/mld-ipa`. `dc resume` and `dc policy` run phases again.
-- **Client.** `client iso` remasters the ISO of the selected distro and renders the `CIDATA` seed CD. Ubuntu: the live-server ISO boots with `autoinstall ds=nocloud`. Fedora: the Everything netinstall ISO boots with `inst.ks=hd:LABEL=CIDATA:/ks.cfg`, and `client/ks.cfg.tmpl` is the kickstart. The installer sets up LVM on LUKS and the packages, then copies `client/mld/` to `/etc/mld` (list: `client/mld/install.list`). The VM stays off after the install. `client start` boots it with the serial console attached and types the passphrase at the prompt (`lib/console.py`). On first boot, `mld-firstboot.service` runs one phase file per topic in `client/mld/` (`boot ad ipa cert home apps desktop gpo policy vpn update brand selinux`; `ad` and `gpo` only with `IDP=windows`, `ipa` and `policy` only with `IDP=freeipa`, `selinux` only on Fedora). The result is `/var/lib/mld/DONE` or `/var/lib/mld/FAILED`. `client resume` copies the changed files and settings to the client and runs the first boot again.
+- **Identity server, `IDP=windows`.** `dc iso` renders `dc/autounattend.xml.tmpl` and `config.ps1` from `lab.env` into the `PROVISION` CD. `dc/provision/run.ps1` then runs the phases below across reboots. The state is in `C:\build\phase`. The result is `C:\build\DONE` or `C:\build\FAILED`. `dc resume` runs the phases again after a change.
+
+  | Phase | Task |
+  |---|---|
+  | 1 | AD DS |
+  | 2 | DNS, time, OUs, users, join account |
+  | 3 | share `Homes$` |
+  | 4 | WinRM, RDP |
+  | 5 | domain facts for the host |
+  | 6 | AD CS |
+  | 7 | certificate templates |
+  | 8 | Linux GPO |
+  | 9 | ADMX central store |
+
+- **Identity server, `IDP=freeipa`.** `dc vm` installs Fedora 45 from a kickstart (`ipa/ks.cfg.tmpl`). Then `ipa/provision/run.sh` runs the phases below. The state is in `/var/lib/mld-ipa`. `dc resume` and `dc policy` run phases again.
+
+  | Phase | Task |
+  |---|---|
+  | 1 | `ipa-server-install` |
+  | 2 | users, group, HBAC |
+  | 3 | NFS homes, automount |
+  | 4 | user certificate profile |
+  | 5 | policy endpoint |
+
+- **Client.** `client iso` remasters the ISO of the selected distro and renders the `CIDATA` seed CD. Ubuntu: the live-server ISO boots with `autoinstall ds=nocloud`. Fedora: the Everything netinstall ISO boots with `inst.ks=hd:LABEL=CIDATA:/ks.cfg`, and `client/ks.cfg.tmpl` is the kickstart. The installer sets up LVM on LUKS and the packages, then copies `client/mld/` to `/etc/mld` (list: `client/mld/install.list`). The VM stays off after the install. `client start` boots it with the serial console attached and types the passphrase at the prompt (`lib/console.py`). On first boot, `mld-firstboot.service` runs one phase file per topic in `client/mld/` (`boot ad ipa cert home apps desktop gpo policy vpn update brand selinux`). The topics `ad` and `gpo` run only with `IDP=windows`. The topics `ipa` and `policy` run only with `IDP=freeipa`, and `selinux` runs only on Fedora. The result is `/var/lib/mld/DONE` or `/var/lib/mld/FAILED`. `client resume` copies the changed files and settings to the client and runs the first boot again.
 - **Media.** The ISO files are in `data/media`, the VM disks in `data/pool`. `checksums.sha256` pins the Ubuntu ISO, using Canonical's published `SHA256SUMS`. For Fedora, `fetch` downloads the signed `CHECKSUM` file. It checks the signature when `fedora.gpg` (a binary keyring for `gpgv`) is in `data/media`. Without the keyring, `./build.sh pin` records the sum at first download (trust on first use). With `IDP=windows`, Microsoft and virtio-win publish no ISO checksum, so `./build.sh pin` records their sums at first download (trust on first use).
 
 ## Repository layout
@@ -111,7 +133,12 @@ These procedures use ASD-STE100 Simplified Technical English. The topic procedur
 
 ### Prerequisites
 
-- Host tools: `virsh`, `virt-install`, `virt-xml`, `genisoimage`, `xorriso`, `openssl`, `python3`, `curl`, `swtpm`, `magick` (ImageMagick), OVMF (`/usr/share/OVMF/OVMF_CODE_4M.secboot.fd`).
+- Host tools:
+  - libvirt: `virsh`, `virt-install`, `virt-xml`.
+  - ISO build: `genisoimage`, `xorriso`.
+  - Other: `openssl`, `python3`, `curl`, `swtpm`.
+- ImageMagick (`magick`).
+- OVMF firmware: `/usr/share/OVMF/OVMF_CODE_4M.secboot.fd`.
 - Optional host tool: `sshpass` for the login test.
 - Host tools for `CLIENT_DISTRO=fedora`: `mtools` (`mcopy`, `mtype`) to patch the boot menu in the EFI image of the ISO. Optional: `pykickstart` (`ksvalidator`) to check the kickstart syntax in the render test.
 - Your user account is a member of the `libvirt` group.
@@ -262,7 +289,7 @@ NOTE: Fedora has no cloud-init. On Fedora, `client verify` only checks the passw
 - If TPM2 and FIDO2 are both enrolled, `/etc/crypttab` has both options. Not tested: systemd-cryptsetup can use only one of them in this case.
 - `IDP=windows`: Microsoft can change the build behind the Windows Server download link. Then the pinned checksum does not match, and `fetch` stops.
 - `IDP=windows`: Windows Server 2025 DCs send a KPASSWD reply that MIT Kerberos rejects ("Message stream modified", [realmd/adcli#40](https://gitlab.freedesktop.org/realmd/adcli/-/issues/40)). Because of this, the join uses Samba offline domain join (no kpasswd), not adcli. A password change from Linux (`passwd`, kpasswd) and the sssd machine password renewal also fail against this DC.
-- Google Chrome 157 and 158 do no Kerberos (Negotiate) login, with both identity servers: Chrome writes "Unable to create AuthHandler. Status: net::ERR_UNSUPPORTED_AUTH_SCHEME Challenge: Negotiate". The result is the same with the policy allowlist (GPO or `mld-policy`), with the allowlist as a command-line flag, with `--no-sandbox`, with `AuthSchemes` set to `negotiate`, and with an explicit `--gssapi-library-name`. The cause is not known. Firefox does Kerberos with the same ticket. `client verify` shows the Chrome result as `open`, not as `FAIL`.
+- Google Chrome 157 and 158 do no Kerberos (Negotiate) login, with both identity servers: Chrome writes "Unable to create AuthHandler. Status: net::ERR_UNSUPPORTED_AUTH_SCHEME Challenge: Negotiate". The result is the same with the policy allowlist (GPO or `mld-policy`) and with the allowlist as a command-line flag. It is also the same with `--no-sandbox`, with `AuthSchemes` set to `negotiate`, and with an explicit `--gssapi-library-name`. The cause is not known. Firefox does Kerberos with the same ticket. `client verify` shows the Chrome result as `open`, not as `FAIL`.
 - A shim update that changes the SBAT level changes PCR 7. After the automatic reboot at night, the client then waits for the passphrase.
 - Fedora (`CLIENT_DISTRO=fedora`): SELinux stays enforcing. `client verify` fails on an AVC denial that is not on the ignore list (`client/mld/selinux/avc-ignore.list`).
 - Fedora KDE: the login screen is Plasma Login Manager (`plasmalogin.service`). Its package has no setting for the user list that corresponds to SDDM `MaximumUid`. A directory user login on this screen is a manual check (`client verify` shows a warning, not `ok`). If the screen cannot take a typed user name, the fallback is SDDM on Fedora KDE.
@@ -270,7 +297,7 @@ NOTE: Fedora has no cloud-init. On Fedora, `client verify` only checks the passw
 - Fedora: live builds of the Fedora client pass `client verify` with both identity servers (2026-11-18). The done criteria in [docs/superpowers/specs/2026-11-12-fedora-client-design.md](docs/superpowers/specs/2026-11-12-fedora-client-design.md) are not checked one by one.
 - Fedora 45 has no major-version upgrade in this lab. It reaches end of life about one month after Fedora 47 is released.
 - `IDP=freeipa`: the limits are in [docs/freeipa.md](docs/freeipa.md#known-limits).
-- `IDP=windows`, Fedora: the GPO `MLD Linux Clients` adds the Firefox security device `/usr/lib/x86_64-linux-gnu/pkcs11/p11-kit-trust.so`. This path is the Ubuntu path. Fedora has the module in `/usr/lib64/pkcs11/`. The Fedora Firefox package uses the system certificate store, so it trusts the AD CA from `update-ca-trust` (live check 2026-11-18: TLS and Kerberos to the DC work).
+- `IDP=windows`, Fedora: the GPO `MLD Linux Clients` adds the Firefox security device `/usr/lib/x86_64-linux-gnu/pkcs11/p11-kit-trust.so`. This path is the Ubuntu path. Fedora has the module in `/usr/lib64/pkcs11/`. The Fedora Firefox package uses the system certificate store. Thus it trusts the AD CA from `update-ca-trust` (live check 2026-11-18: TLS and Kerberos to the DC work).
 
 ## License
 

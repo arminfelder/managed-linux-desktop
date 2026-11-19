@@ -11,11 +11,15 @@
 | Recovery key, MOK, TPM2 | `build.sh` from the host | `sudo mld-firstboot secure` on the device |
 | Console | Serial console for `build.sh` | Screen only |
 
-The device needs a wired network that reaches the DC (DNS and Kerberos to `DC_IP`), UEFI with Secure Boot (Microsoft keys), and a TPM 2.0 for `ENROLL_TPM2=1`.
+The device needs:
+
+- a wired network that reaches the DC (DNS and Kerberos to `DC_IP`)
+- UEFI with Secure Boot (Microsoft keys)
+- a TPM 2.0 for `ENROLL_TPM2=1`
 
 These procedures use ASD-STE100 Simplified Technical English.
 
-With `CLIENT_DISTRO=fedora`, the image is a Fedora 45 Everything netinstall ISO with a partial kickstart (`lib/hw-ks.py`): no storage, user and network sections, so Anaconda asks for them. The steps in "Install a device" differ only on the installer screens: see [Fedora differences](#fedora-differences).
+With `CLIENT_DISTRO=fedora`, the image is a Fedora 45 Everything netinstall ISO with a partial kickstart (`lib/hw-ks.py`). The kickstart has no storage, user and network sections, so Anaconda asks for them. The steps in "Install a device" differ only on the installer screens: see [Fedora differences](#fedora-differences).
 
 ```mermaid
 flowchart LR
@@ -48,7 +52,10 @@ flowchart LR
 4. If the installer asks for a confirmation of the automatic install, confirm it.
 5. On the identity screen, type the host name. Use the name of a blob (step 1 of "Make the install stick").
 6. Type the admin user name and the admin password.
-7. On the storage screen, select "Use an entire disk", "Set up this disk as an LVM group" and "Encrypt the LVM group with LUKS".
+7. On the storage screen, select these options:
+   - "Use an entire disk"
+   - "Set up this disk as an LVM group"
+   - "Encrypt the LVM group with LUKS"
 8. Type the LUKS passphrase two times.
 9. Wait until the installer restarts the device. Remove the USB stick.
 10. At the passphrase prompt, type the LUKS passphrase.

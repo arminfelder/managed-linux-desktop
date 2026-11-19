@@ -28,11 +28,18 @@ flowchart LR
 
 NOTE: `samba-gpupdate` applies all GPOs that apply to the computer, also the Default Domain Policy. Do not link the setting "Certificate Services Client - Auto-Enrollment" to the Linux OU: the Linux autoenrollment is `mld-autoenroll`.
 
-NOTE: DC phase 9 puts the ADMX templates for Samba (Unix settings, smb.conf), GNOME, Firefox and Chrome in the central store (`SYSVOL\domain\Policies\PolicyDefinitions`), with the Windows templates. Then the GPMC editor shows these settings by name. The Samba and Mozilla files have a pinned SHA-256 sum. Google publishes only the newest Chrome templates, so these have no fixed sum: to update them, delete `chrome.admx` in the central store and run `./build.sh dc resume`.
+NOTE: DC phase 9 puts the ADMX templates for Samba (Unix settings, smb.conf), GNOME, Firefox and Chrome in the central store. The central store is `SYSVOL\domain\Policies\PolicyDefinitions` and also has the Windows templates. Then the GPMC editor shows these settings by name. The Samba and Mozilla files have a pinned SHA-256 sum. Google publishes only the newest Chrome templates, so these have no fixed sum: to update them, delete `chrome.admx` in the central store and run `./build.sh dc resume`.
 
 ## Examine the automatic updates
 
-The client installs updates each day with unattended-upgrades. The sources are the Ubuntu release, `-security` and `-updates`, and the third-party repositories of Firefox (`packages.mozilla.org`), Chrome (`dl.google.com`) and snx-rs (`ancwrd1.github.io`). The settings are in `/etc/apt/apt.conf.d/52mld-unattended-upgrades` (`client/mld/update/`).
+The client installs updates each day with unattended-upgrades. The sources are:
+
+- the Ubuntu release, `-security` and `-updates`
+- Firefox: `packages.mozilla.org`
+- Chrome: `dl.google.com`
+- snx-rs: `ancwrd1.github.io`
+
+The settings are in `/etc/apt/apt.conf.d/52mld-unattended-upgrades` (`client/mld/update/`).
 
 1. Run `./build.sh client verify`.
 2. Make sure that the script shows `ok automatic updates` and `ok update sources`.
@@ -137,7 +144,7 @@ The machine key is in the TPM token `mld-machine` in `/etc/tpm2_pkcs11`. Only ro
 3. Make sure that the script shows `ok machine cert over PKCS#11` and `ok machine key signs (no prompt)`.
 4. In the VPN profile of the user (`snx-rs-gui`), set these values:
 
-   ```
+   ```ini
    cert-type=pkcs11
    cert-path=/usr/lib/x86_64-linux-gnu/pkcs11/libtpm2_pkcs11.so
    cert-password=<MACHINE_TOKEN_PIN>
